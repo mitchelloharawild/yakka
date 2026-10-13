@@ -1,58 +1,32 @@
 #!/usr/bin/env node
 /**
- * Builds the service worker: src/app/sw.ts -> public/sw.js.
+ * Bundles the service worker source: src/app/sw.ts -> .sw/sw.js.
  *
- * Runs after `next build` (see the "build" npm script), because the precache
- * manifest lists the hashed files in .next/static. We bundle with esbuild
- * directly instead of @serwist/turbopack / @serwist/next: those pull in
- * @swc/core, whose native binary refuses to load on machines where ~/.cache
- * is group-writable, and @serwist/turbopack's route handler relies on route
- * segment config that Cache Components rejects. esbuild ships its native
+ * Runs BEFORE `next build` (see the "build" npm script). The bundle is not
+ * served as-is: the route handler src/app/sw.js/route.ts reads it while
+ * `next build` prerenders that route, injects the precache manifest (the
+ * hashed files in .next/static, which exist by then) and so /sw.js becomes a
+ * static build output. Nothing is written to public/ after `next build`,
+ * which deployment adapters (Vercel's included) would not pick up.
+ *
+ * We bundle with esbuild directly instead of @serwist/turbopack /
+ * @serwist/next: those pull in @swc/core, whose native binary refuses to load
+ * on machines where ~/.cache is group-writable. esbuild ships its native
  * binary inside node_modules, so it is unaffected.
  *
- *   node scripts/build-sw.mjs          # production bundle with precache manifest
- *   node scripts/build-sw.mjs --dev    # no manifest, unminified (for testing the SW with `next dev`)
+ *   node scripts/build-sw.mjs          # minified (production)
+ *   node scripts/build-sw.mjs --dev    # unminified, inline source map (for trying the SW with `next dev`)
  */
-import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { getFileManifestEntries } from "@serwist/build";
 import { build } from "esbuild";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dev = process.argv.includes("--dev");
-const outfile = path.join(root, "public/sw.js");
+const outfile = path.join(root, ".sw/sw.js");
 
-let manifest = [];
-if (!dev) {
-  const buildIdFile = path.join(root, ".next/BUILD_ID");
-  if (!fs.existsSync(buildIdFile)) {
-    console.error("build-sw: .next/BUILD_ID not found; run `next build` first (or pass --dev).");
-    process.exit(1);
-  }
-  const buildId = fs.readFileSync(buildIdFile, "utf8").trim();
-  const result = await getFileManifestEntries({
-    globDirectory: root,
-    globPatterns: [".next/static/**/*.{js,css,woff,woff2}", "public/**/*.{png,svg,ico,webp}"],
-    globIgnores: ["public/sw.js", "public/sw.js.map"],
-    globFollow: true,
-    globStrict: true,
-    // Hashed file names: no ?__WB_REVISION__ needed.
-    dontCacheBustURLsMatching: /^\/_next\/static\//,
-    modifyURLPrefix: { ".next/": "/_next/", "public/": "/" },
-    maximumFileSizeToCacheInBytes: 2 * 1024 * 1024,
-    additionalPrecacheEntries: [
-      // The offline fallback page (and the app shell it renders), revisioned per build.
-      { url: "/offline", revision: buildId },
-      { url: "/manifest.webmanifest", revision: buildId },
-    ],
-    disablePrecacheManifest: false,
-    manifestTransforms: [],
-  });
-  for (const w of result.warnings) console.warn(`build-sw: ${w}`);
-  manifest = result.manifestEntries ?? [];
-  console.log(`build-sw: ${result.count} precache entries (${(result.size / 1024).toFixed(1)} KiB)`);
-}
+/** Replaced with the precache manifest (a JSON array) by src/app/sw.js/route.ts. */
+const PLACEHOLDER = "__YAKKA_PRECACHE_MANIFEST__";
 
 await build({
   entryPoints: [path.join(root, "src/app/sw.ts")],
@@ -62,10 +36,12 @@ await build({
   platform: "browser",
   target: ["chrome109", "safari16.4", "firefox115"],
   minify: !dev,
-  sourcemap: true,
+  // A separate .map file would have to be served too; keep it inline in dev only.
+  sourcemap: dev ? "inline" : false,
   tsconfig: path.join(root, "tsconfig.json"),
   define: {
-    "self.__SW_MANIFEST": JSON.stringify(manifest),
+    // An unbound global identifier survives minification unchanged.
+    "self.__SW_MANIFEST": PLACEHOLDER,
     "process.env.NODE_ENV": JSON.stringify(dev ? "development" : "production"),
   },
   logLevel: "warning",

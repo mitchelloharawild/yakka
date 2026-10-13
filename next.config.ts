@@ -8,8 +8,10 @@ const nextConfig: NextConfig = {
   partialPrefetching: true,
   // Native modules must not be bundled.
   serverExternalPackages: ["better-sqlite3", "web-push"],
-  // The service worker (built to public/sw.js by scripts/build-sw.mjs) must
-  // never be served stale, and may control the whole origin.
+  // The service worker (src/app/sw.js/route.ts, prerendered at build time)
+  // must never be served stale, and may control the whole origin. The route
+  // sets these too; this also covers platforms that serve the prerendered
+  // body without the handler's headers.
   async headers() {
     return [
       {

@@ -10,8 +10,7 @@ out
 coverage
 data
 src/generated
-public/sw.js
-public/sw.js.map
+.sw
 *.tsbuildinfo
 next-env.d.ts
 npm-debug.log*

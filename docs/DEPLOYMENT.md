@@ -189,14 +189,31 @@ never send the query string. No provider script is bundled yet.
 
 ## Service worker
 
-`src/app/sw.ts` (Serwist) is bundled to `public/sw.js` by
-`scripts/build-sw.mjs` (esbuild plus `@serwist/build`), which `npm run build`
-runs after `next build`, because the precache manifest lists the hashed
-`.next/static` files. We don't use `@serwist/turbopack`/`@serwist/next`. They
-depend on `@swc/core`, whose native binary won't load when `~/.cache` is
-group-writable. `/sw.js` is served with `Cache-Control: no-cache` and
-`Service-Worker-Allowed: /`.
+`src/app/sw.ts` (Serwist) is served at `/sw.js` by the route handler
+`src/app/sw.js/route.ts`, which `next build` **prerenders**, so the service
+worker is an ordinary static build output on every target:
+
+1. `npm run build` first runs `scripts/build-sw.mjs`, which bundles
+   `src/app/sw.ts` with esbuild into `.sw/sw.js` (gitignored), leaving a
+   placeholder for the precache manifest.
+2. `next build` compiles the app (writing the hashed `.next/static` files),
+   then prerenders `/sw.js`: the handler reads `.sw/sw.js` and injects the
+   precache manifest (`src/lib/sw-manifest.ts`: the `.next/static` JS, CSS
+   and fonts, the icons in `public/`, `/offline` and the web manifest).
+
+Why not write `public/sw.js` after `next build`? Deployment adapters,
+including Vercel's, collect the build outputs (static files included) when
+`next build` finishes, so a file added to `public/` afterwards may not be
+deployed. A prerendered route is part of those outputs; it also ends up in the
+Docker image's standalone server without any extra copying. Nothing reads
+`.sw/` at runtime.
+
+We don't use `@serwist/turbopack`/`@serwist/next`: they depend on
+`@swc/core`, whose native binary won't load when `~/.cache` is
+group-writable. `/sw.js` is served with `Cache-Control: no-cache, no-store,
+must-revalidate` and `Service-Worker-Allowed: /` (set by the route and in
+`next.config.ts`).
 
 The service worker is only registered in production builds. To try it with
 `next dev`, run `npm run sw:build -- --dev` and set
-`NEXT_PUBLIC_ENABLE_SW=true`.
+`NEXT_PUBLIC_ENABLE_SW=true` (in dev the precache manifest is empty).

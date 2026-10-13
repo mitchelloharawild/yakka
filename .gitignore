@@ -52,6 +52,5 @@ next-env.d.ts
 # local SQLite databases
 /data/
 
-# built by scripts/build-sw.mjs after `next build`
-/public/sw.js
-/public/sw.js.map
+# service worker bundle, built by scripts/build-sw.mjs before `next build`
+/.sw/

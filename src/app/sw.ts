@@ -1,8 +1,9 @@
 /// <reference lib="webworker" />
 /**
- * Service worker source, bundled to public/sw.js by scripts/build-sw.mjs
- * (esbuild) after `next build`. OWNED BY: Agent D. Not a route: Next ignores
- * this file.
+ * Service worker source, bundled to .sw/sw.js by scripts/build-sw.mjs
+ * (esbuild) before `next build`, and served (with the precache manifest
+ * injected) by the prerendered route src/app/sw.js/route.ts. Not a route
+ * itself: Next ignores this file.
  *
  * Caching (GET only; the Cache API never stores POSTs, so tRPC mutations,
  * completions and replays always hit the network):
@@ -23,7 +24,7 @@ import { OFFLINE_SYNC_TAG, replayQueue } from "@/lib/client/offline-queue";
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
-    /** Replaced at build time with the precache manifest. */
+    /** Replaced with the precache manifest (see src/app/sw.js/route.ts). */
     __SW_MANIFEST: (PrecacheEntry | string)[] | undefined;
   }
 }
