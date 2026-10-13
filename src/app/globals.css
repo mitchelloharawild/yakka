@@ -131,3 +131,23 @@
     @apply font-sans;
   }
 }
+/* Tap-to-complete tick (src/components/tag/big-check.tsx). Fully drawn at
+   rest; the draw-in starts a third of the way along with no delay, so the
+   tick is visible from the first frame. */
+.yakka-check-path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .yakka-check-path {
+    animation: yakka-check-draw 350ms ease-out;
+  }
+}
+@keyframes yakka-check-draw {
+  from {
+    stroke-dashoffset: 0.65;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}

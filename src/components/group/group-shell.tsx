@@ -173,28 +173,7 @@ export function GroupShell({ children }: { children: React.ReactNode }) {
             <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
           </button>
         </div>
-        <nav aria-label={t("nav.label")} className="-mx-4 flex gap-1 overflow-x-auto px-4 [scrollbar-width:none]">
-          {sections.map(({ key, href, icon: Icon }) => {
-            const to = base + href;
-            const active = href === "" ? pathname === base : pathname === to || pathname.startsWith(to + "/");
-            return (
-              <Link
-                key={key}
-                href={to}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "flex shrink-0 items-center gap-1.5 border-b-2 px-2.5 pt-1 pb-2 text-sm font-medium whitespace-nowrap transition-colors",
-                  active
-                    ? "border-primary text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <Icon className="size-4" />
-                {t(`nav.${key}`)}
-              </Link>
-            );
-          })}
-        </nav>
+        <GroupNav base={base} pathname={pathname} label={t("nav.label")} itemLabel={(key) => t(`nav.${key}`)} />
       </div>
       {children}
       <IdentityDialog
@@ -206,5 +185,92 @@ export function GroupShell({ children }: { children: React.ReactNode }) {
         onCreate={create}
       />
     </IdentityContext.Provider>
+  );
+}
+
+/**
+ * Section tabs. On phones the inactive tabs are icon-only (with an
+ * accessible name and tooltip) so all six fit at 360-390 px; from `sm` up
+ * every tab has its label. If they still overflow (very narrow screens or
+ * large text), the row scrolls, fades at the edge that has more, and keeps
+ * the active tab in view.
+ */
+function GroupNav({
+  base,
+  pathname,
+  label,
+  itemLabel,
+}: {
+  base: string;
+  pathname: string;
+  label: string;
+  itemLabel: (key: (typeof sections)[number]["key"]) => string;
+}) {
+  const ref = useRef<HTMLElement>(null);
+  const [fade, setFade] = useState({ left: false, right: false });
+
+  const update = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    setFade({ left: el.scrollLeft > 2, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 2 });
+  }, []);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [pathname, update]);
+
+  return (
+    <div className="relative -mx-4">
+      <nav
+        ref={ref}
+        aria-label={label}
+        onScroll={update}
+        className="flex gap-0.5 overflow-x-auto px-2 [scrollbar-width:none] sm:gap-1 sm:px-4 [&::-webkit-scrollbar]:hidden"
+      >
+        {sections.map(({ key, href, icon: Icon }) => {
+          const to = base + href;
+          const active = href === "" ? pathname === base : pathname === to || pathname.startsWith(to + "/");
+          const name = itemLabel(key);
+          return (
+            <Link
+              key={key}
+              href={to}
+              aria-current={active ? "page" : undefined}
+              aria-label={name}
+              title={name}
+              className={cn(
+                "flex min-h-10 shrink-0 items-center gap-1.5 border-b-2 px-3 pt-1 pb-2 text-sm font-medium whitespace-nowrap transition-colors sm:px-2.5",
+                active
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Icon className="size-4 shrink-0" aria-hidden />
+              <span className={cn(!active && "sr-only sm:not-sr-only")}>{name}</span>
+            </Link>
+          );
+        })}
+      </nav>
+      <div
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-background to-transparent transition-opacity",
+          fade.left ? "opacity-100" : "opacity-0",
+        )}
+      />
+      <div
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-background to-transparent transition-opacity",
+          fade.right ? "opacity-100" : "opacity-0",
+        )}
+      />
+    </div>
   );
 }
