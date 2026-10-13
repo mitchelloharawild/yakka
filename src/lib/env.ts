@@ -34,6 +34,14 @@ const serverEnvSchema = z.object({
   ALLOW_JOIN_FROM_TAG_DEFAULT: bool(true),
   /** e.g. "plausible" or "umami"; undefined disables analytics. */
   ANALYTICS_PROVIDER: optionalString,
+  /** Outbound webhooks may target private/LAN addresses (e.g. Home Assistant). Turn off on public instances. */
+  WEBHOOK_ALLOW_PRIVATE_NETWORKS: bool(true),
+  /** Optional ntfy topic URL (e.g. https://ntfy.sh/my-topic) that also receives due/overdue notices. */
+  NTFY_URL: optionalString,
+  /** Optional ntfy access token (sent as `Authorization: Bearer`). */
+  NTFY_TOKEN: optionalString,
+  /** Optional Apprise API notify URL (e.g. http://apprise:8000/notify/yakka) for due/overdue notices. */
+  APPRISE_URL: optionalString,
 });
 
 /** Typed server environment. */
