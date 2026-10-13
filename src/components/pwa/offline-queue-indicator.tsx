@@ -1,5 +1,6 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { CloudOff, RefreshCw } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
@@ -46,6 +47,7 @@ export function OfflineQueueIndicator({
 }) {
   const t = useTranslations("pwa.queue");
   const count = useOfflineQueueCount();
+  const queryClient = useQueryClient();
   const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
@@ -53,10 +55,12 @@ export function OfflineQueueIndicator({
     return subscribeQueue((message) => {
       if (message.type !== "replayed") return;
       const { synced, rejected } = message.summary;
+      // Refresh dashboards so synced (or dropped) completions show up.
+      void queryClient.invalidateQueries();
       if (synced) toast.success(t("synced", { count: synced }));
       if (rejected.length) toast.error(t("rejected", { count: rejected.length }), { description: t("rejectedHint") });
     });
-  }, [announce, t]);
+  }, [announce, queryClient, t]);
 
   if (count === 0) return null;
 

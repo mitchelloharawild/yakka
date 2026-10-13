@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * "Who are you?" picker: member chips plus "I'm new". Reusable outside the
- * group pages (the tag page uses the same UX), so it takes plain props and
- * doesn't read the group context.
+ * "Who are you?" picker: member chips plus "I'm new". Shared by the group
+ * pages (in IdentityDialog) and the tag page /t/{token}, so it takes plain
+ * props and reads no group context.
  *
  *   <IdentityPicker
  *     members={group.members}
@@ -11,8 +11,12 @@
  *     onCreate={async (name) => { const m = await addMember(name); setIdentity(groupId, m.id); }}
  *   />
  *
- * Archived members are hidden. `onCreate` may return a promise; the input
- * stays disabled until it settles and is cleared on success.
+ * One tap on a chip calls `onPick` straight away (the tag page completes the
+ * chore in that same tap: iOS asks again in Safari after a PWA install, so
+ * it must stay one tap). Archived members are hidden. `onCreate` may return
+ * a promise; the input stays disabled until it settles and is cleared on
+ * success. `size="lg"` gives bigger chips for the tag page, and `labels`
+ * overrides the default (group) wording.
  */
 import { CheckIcon, Loader2Icon, PlusIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -28,7 +32,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { MemberAvatar } from "./member-avatar";
+import { MemberAvatar } from "@/components/group/member-avatar";
 
 /** The member fields the picker needs. */
 export interface IdentityPickerMember {
@@ -49,6 +53,10 @@ export interface IdentityPickerProps {
   currentMemberId?: string | null;
   /** Disables all controls (e.g. while a parent mutation runs). */
   disabled?: boolean;
+  /** "lg": taller chips, for the tag page. */
+  size?: "md" | "lg";
+  /** Override the default wording (e.g. "Join and tick off" on a tag). */
+  labels?: Partial<Record<"imNew" | "newName" | "join" | "noMembers" | "back", string>>;
   className?: string;
 }
 
@@ -59,9 +67,13 @@ export function IdentityPicker({
   onCreate,
   currentMemberId,
   disabled,
+  size = "md",
+  labels,
   className,
 }: IdentityPickerProps) {
-  const t = useTranslations("group.identity");
+  const tg = useTranslations("group.identity");
+  const t = (key: "imNew" | "newName" | "join" | "noMembers" | "back") => labels?.[key] ?? tg(key);
+  const lg = size === "lg";
   const active = members.filter((m) => !m.archivedAt);
   const [creating, setCreating] = useState(active.length === 0);
   const [name, setName] = useState("");
@@ -102,7 +114,8 @@ export function IdentityPicker({
                 onClick={() => run(m.id, () => onPick(m.id))}
                 aria-pressed={current}
                 className={cn(
-                  "flex h-14 w-full items-center gap-3 rounded-xl border bg-card px-3 text-left text-base font-medium transition-colors",
+                  "flex w-full items-center gap-3 rounded-xl border bg-card px-3 text-left font-medium transition-colors",
+                  lg ? "h-16 rounded-2xl px-4 text-lg shadow-xs" : "h-14 text-base",
                   "hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none active:scale-[0.98] disabled:opacity-60",
                   current && "border-primary ring-2 ring-primary/30",
                 )}
@@ -112,7 +125,7 @@ export function IdentityPicker({
                 {busy === m.id ? (
                   <Loader2Icon className="size-4 animate-spin text-muted-foreground" />
                 ) : current ? (
-                  <CheckIcon className="size-4 text-primary" aria-label={t("current")} />
+                  <CheckIcon className="size-4 text-primary" aria-label={tg("current")} />
                 ) : null}
               </button>
             </li>
@@ -124,7 +137,10 @@ export function IdentityPicker({
               type="button"
               disabled={off}
               onClick={() => setCreating(true)}
-              className="flex h-14 w-full items-center gap-3 rounded-xl border border-dashed px-3 text-left text-base font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
+              className={cn(
+                "flex w-full items-center gap-3 rounded-xl border border-dashed px-3 text-left font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-[0.98] disabled:opacity-60",
+                lg ? "h-16 rounded-2xl px-4 text-lg" : "h-14 text-base",
+              )}
             >
               <span className="inline-flex size-9 items-center justify-center rounded-full bg-muted">
                 <PlusIcon className="size-4" />
@@ -135,7 +151,7 @@ export function IdentityPicker({
         )}
       </ul>
       {onCreate && creating && (
-        <form onSubmit={submitNew} className="flex gap-2">
+        <form onSubmit={submitNew} className="flex flex-wrap gap-2">
           <Input
             autoFocus
             value={name}
@@ -144,10 +160,22 @@ export function IdentityPicker({
             aria-label={t("newName")}
             maxLength={50}
             disabled={off}
-            className="h-11 text-base"
+            className={cn("min-w-0 flex-1 basis-40 text-base", lg ? "h-12 text-lg" : "h-11")}
             autoComplete="given-name"
           />
-          <Button type="submit" size="lg" className="h-11 px-4" disabled={off || !name.trim()}>
+          {active.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              className={lg ? "h-12" : "h-11"}
+              disabled={off}
+              onClick={() => setCreating(false)}
+            >
+              {t("back")}
+            </Button>
+          )}
+          <Button type="submit" size="lg" className={cn("px-4", lg ? "h-12 text-base" : "h-11")} disabled={off || !name.trim()}>
             {busy === "new" ? <Loader2Icon className="animate-spin" /> : <PlusIcon />}
             {t("join")}
           </Button>

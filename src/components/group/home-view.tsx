@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useNow, useTranslations, useFormatter } from "next-intl";
 import { useEffect } from "react";
 import { toast } from "sonner";
+import { InstallPrompt } from "@/components/pwa/install-prompt";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -61,6 +62,8 @@ export function HomeView() {
           <GroupList groups={groups} />
         )}
       </section>
+
+      <InstallPrompt />
 
       <section className="grid gap-3 sm:grid-cols-3">
         <Feature icon={<NfcIcon className="size-5" />} title={t("features.tapTitle")} body={t("features.tapBody")} />

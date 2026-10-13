@@ -9,6 +9,8 @@ import type { inferRouterOutputs } from "@trpc/server";
 import { useTranslations } from "next-intl";
 import { useCallback } from "react";
 import { toast } from "sonner";
+import { isNetworkError } from "@/lib/client/network-error";
+import { enqueueManualCompletion } from "@/lib/client/offline-queue";
 import { compareSchedules } from "@/lib/schedule";
 import { useTRPC } from "@/trpc/client";
 import type { AppRouter } from "@/trpc/routers/_app";
@@ -56,6 +58,7 @@ export function useChoreActions() {
       onMutate: async (vars) => {
         await qc.cancelQueries(listFilter);
         const snapshot = qc.getQueriesData<ChoreItem[]>(listFilter);
+        // Also the time an offline replay records (the server clock is used online).
         const now = new Date();
         qc.setQueriesData<ChoreItem[]>(listFilter, (old) =>
           old?.map((c) =>
@@ -84,9 +87,31 @@ export function useChoreActions() {
                 },
           ),
         );
-        return { snapshot };
+        return { snapshot, at: now };
       },
-      onError: (e, _vars, ctx) => {
+      // Fire even when the browser says it's offline, so the failure reaches
+      // onError and goes to the offline queue instead of pausing silently.
+      networkMode: "always",
+      onError: async (e, vars, ctx) => {
+        const memberId = vars.memberId ?? vars.actor?.memberId;
+        const deviceId = vars.actor?.deviceId;
+        if (isNetworkError(e) && memberId && deviceId) {
+          try {
+            await enqueueManualCompletion({
+              kind: "manual",
+              groupId: vars.groupId,
+              choreId: vars.choreId,
+              memberId,
+              deviceId,
+              completedAt: (ctx?.at ?? new Date()).toISOString(),
+            });
+            // Keep the optimistic "done" state: it will be recorded on sync.
+            toast.success(t("savedOffline"));
+            return;
+          } catch {
+            // IndexedDB unavailable: fall through to the normal error.
+          }
+        }
         for (const [key, data] of ctx?.snapshot ?? []) qc.setQueryData(key, data);
         toast.error(errorMessage(e));
       },

@@ -21,11 +21,11 @@ import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { setIdentity, touchGroup, useHydrated, useIdentity } from "@/lib/client/local-groups";
+import { adoptTagIdentity, setIdentity, touchGroup, useHydrated, useIdentity } from "@/lib/client/local-groups";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 import { useActor, useErrorMessage, useGroup, type GroupMember } from "./group-context";
-import { IdentityDialog } from "./identity-picker";
+import { IdentityDialog } from "@/components/identity-picker";
 import { MemberAvatar } from "./member-avatar";
 
 interface IdentityApi {
@@ -76,6 +76,15 @@ export function GroupShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     touchGroup({ id: groupId, name: group.name });
   }, [groupId, group.name]);
+
+  // Hand-over from a tag: someone who picked "who are you?" on a tag page
+  // (which never reveals the group id) is the same person here.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has("as")) return;
+    adoptTagIdentity(groupId, group.name, (id) => group.members.some((m) => m.id === id && !m.archivedAt));
+    // Only on first mount of this group.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupId]);
 
   // Device transfer: /groups/{id}?as={memberId} sets the identity, then the
   // parameter is stripped so the link isn't bookmarked or shared with it.

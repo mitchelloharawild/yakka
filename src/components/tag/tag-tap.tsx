@@ -23,11 +23,12 @@ import { Loader2, Undo2, WifiOff } from "lucide-react";
 import Link from "next/link";
 import { useFormatter, useNow, useTranslations } from "next-intl";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { IdentityPicker } from "@/components/identity-picker";
 import { BigCheck } from "@/components/tag/big-check";
-import { TagIdentityPicker } from "@/components/tag/identity-picker";
 import { resolveTagContext, setTagIdentity, type TagContext } from "@/components/tag/tag-identity";
 import { Button } from "@/components/ui/button";
 import { getDeviceId, setIdentity, touchGroup } from "@/lib/client/local-groups";
+import { isNetworkError } from "@/lib/client/network-error";
 import { enqueueCompletion } from "@/lib/client/offline-queue";
 import type { ResolvedTag, TagCompletionResult, TagMember } from "@/lib/services/tags";
 import { useTRPCClient } from "@/trpc/client";
@@ -54,12 +55,6 @@ function reasonOf(err: unknown): string | null {
     return data?.reason ?? null;
   }
   return null;
-}
-
-/** A failure to reach the server at all (vs. an error response). */
-function isNetworkError(err: unknown): boolean {
-  if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
-  return err instanceof TRPCClientError ? !err.data && !err.shape : err instanceof TypeError;
 }
 
 /** Resolves once the page is really in front of a person (not prerendering, not hidden). */
@@ -236,9 +231,8 @@ export function TagTap({ token, initial }: { token: string; initial: ResolvedTag
           <Loader2 className="size-10 animate-spin text-muted-foreground" aria-hidden />
         </Centered>
       ) : (
-        <TagIdentityPicker
+        <WhoAreYou
           members={phase.members}
-          busy={false}
           onPick={pick}
           onCreate={phase.canCreate ? (name) => void create(name) : undefined}
         />
@@ -311,6 +305,39 @@ const ERROR_KEYS = {
   MEMBER_ARCHIVED: 1,
   MEMBER_NOT_FOUND: 1,
 } as const;
+
+/** "Who are you?" for a tag: one tap on a chip picks the identity AND completes. */
+function WhoAreYou({
+  members,
+  onPick,
+  onCreate,
+}: {
+  members: TagMember[];
+  onPick: (member: TagMember) => void;
+  onCreate?: (name: string) => void;
+}) {
+  const t = useTranslations("tag.who");
+  return (
+    <div className="flex w-full flex-col gap-4">
+      {members.length > 0 && (
+        <div className="text-center">
+          <h2 className="font-heading text-2xl font-semibold">{t("title")}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{t("subtitle")}</p>
+        </div>
+      )}
+      <IdentityPicker
+        members={members}
+        size="lg"
+        labels={{ imNew: t("new"), newName: t("namePlaceholder"), join: t("join"), noMembers: t("noMembers"), back: t("cancel") }}
+        onPick={(id) => {
+          const m = members.find((x) => x.id === id);
+          if (m) onPick(m);
+        }}
+        onCreate={onCreate}
+      />
+    </div>
+  );
+}
 
 function Centered({ children }: { children: React.ReactNode }) {
   return <div className="flex flex-col items-center gap-4 py-6 text-center">{children}</div>;

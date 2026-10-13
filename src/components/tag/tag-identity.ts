@@ -8,45 +8,16 @@
  * group id: a tag must not reveal the id, so these groups are NOT added to
  * the recent-groups list in local-groups.ts. When the browser does hold the
  * group id, the identity lives in local-groups.ts as usual and that wins.
+ * Opening the full group link later adopts the entry (adoptTagIdentity in
+ * local-groups.ts, called by the group shell).
  */
 import { matchGroupByFingerprint } from "@/lib/tags";
-import { getLocalGroups, type LocalGroup } from "@/lib/client/local-groups";
+import { getLocalGroups, getTagIdentity, type LocalGroup } from "@/lib/client/local-groups";
 
-/** localStorage key. */
-export const TAG_IDENTITIES_KEY = "tagIdentities";
-
-interface TagIdentity {
-  memberId: string;
-  savedAt: number;
-}
-
-function readAll(): Record<string, TagIdentity> {
-  try {
-    const raw = window.localStorage.getItem(TAG_IDENTITIES_KEY);
-    const data: unknown = raw ? JSON.parse(raw) : {};
-    return data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, TagIdentity>) : {};
-  } catch {
-    return {};
-  }
-}
-
-/** Member id remembered for a fingerprint, or null. Browser-only. */
-export function getTagIdentity(fingerprint: string): string | null {
-  const v = readAll()[fingerprint];
-  return v && typeof v.memberId === "string" ? v.memberId : null;
-}
-
-/** Remember (or forget, with null) the member for a fingerprint. Browser-only. */
-export function setTagIdentity(fingerprint: string, memberId: string | null): void {
-  const all = readAll();
-  if (memberId) all[fingerprint] = { memberId, savedAt: Date.now() };
-  else delete all[fingerprint];
-  try {
-    window.localStorage.setItem(TAG_IDENTITIES_KEY, JSON.stringify(all));
-  } catch {
-    // Storage blocked: the user is simply asked again next time.
-  }
-}
+// The storage lives in local-groups.ts (so it is exported/imported with the
+// rest of the local data, and handed over by adoptTagIdentity() when the
+// group link is opened).
+export { getTagIdentity, setTagIdentity, TAG_IDENTITIES_KEY } from "@/lib/client/local-groups";
 
 /** How this browser relates to a tag's group. */
 export interface TagContext {

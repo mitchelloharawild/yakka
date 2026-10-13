@@ -1,8 +1,14 @@
 /**
  * Browser-side identity and recent groups (docs/ARCHITECTURE.md §4).
  *
- *   localStorage["groups"]   = [{ id, name, memberId, starred, lastOpened }]
- *   localStorage["deviceId"] = crypto.randomUUID()
+ *   localStorage["groups"]        = [{ id, name, memberId, starred, lastOpened }]
+ *   localStorage["deviceId"]      = crypto.randomUUID()
+ *   localStorage["tagIdentities"] = { [groupFingerprint]: { memberId, savedAt } }
+ *
+ * `tagIdentities` holds identities picked on a tag page (/t/{token}) for a
+ * group whose id this browser doesn't know: the tag only reveals the
+ * group's fingerprint (src/lib/tags.ts). When the full group link is opened
+ * later, adoptTagIdentity() moves the entry into `groups`.
  *
  * SSR-safe: nothing touches `window` at import time, and the React hooks
  * return an empty snapshot on the server and during hydration, then update.
@@ -12,11 +18,14 @@
  */
 import { useCallback, useSyncExternalStore } from "react";
 import { z } from "zod";
+import { groupFingerprint } from "@/lib/tags";
 
 /** localStorage key of the groups array. */
 export const GROUPS_KEY = "groups";
 /** localStorage key of this browser's device id. */
 export const DEVICE_ID_KEY = "deviceId";
+/** localStorage key of identities picked on tag pages, by group fingerprint. */
+export const TAG_IDENTITIES_KEY = "tagIdentities";
 
 const localGroupSchema = z.object({
   id: z.string().min(1),
@@ -30,13 +39,30 @@ const localGroupSchema = z.object({
 /** One group remembered by this browser. */
 export type LocalGroup = z.infer<typeof localGroupSchema>;
 
+const tagIdentitySchema = z.object({
+  memberId: z.string().min(1),
+  /** Epoch milliseconds. */
+  savedAt: z.number().default(0),
+});
+
+/** An identity picked on a tag page, stored under the group's fingerprint. */
+export type TagIdentity = z.infer<typeof tagIdentitySchema>;
+
+/**
+ * Export format. Still version 1: `tagIdentities` was added as an optional
+ * field, so files from before it import fine, and older importers (which
+ * strip unknown keys) still accept new files.
+ */
 const exportSchema = z.object({
   version: z.literal(1),
   groups: z.array(localGroupSchema),
+  tagIdentities: z.record(z.string(), z.unknown()).optional(),
 });
 
 /** Shape of exportLocalData() output. */
-export type LocalDataExport = z.infer<typeof exportSchema>;
+export type LocalDataExport = Omit<z.infer<typeof exportSchema>, "tagIdentities"> & {
+  tagIdentities?: Record<string, TagIdentity>;
+};
 
 // ---------------------------------------------------------------------------
 // Storage access
@@ -203,6 +229,73 @@ export function removeLocalGroup(groupId: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// Tag identities (by group fingerprint)
+// ---------------------------------------------------------------------------
+
+/** Keep only well-formed entries. */
+function cleanTagIdentities(data: unknown): Record<string, TagIdentity> {
+  const out: Record<string, TagIdentity> = {};
+  if (!data || typeof data !== "object" || Array.isArray(data)) return out;
+  for (const [fp, v] of Object.entries(data)) {
+    const r = tagIdentitySchema.safeParse(v);
+    if (r.success) out[fp] = r.data;
+  }
+  return out;
+}
+
+/** All tag-page identities, keyed by group fingerprint. Corrupt storage reads as empty. */
+export function getTagIdentities(): Record<string, TagIdentity> {
+  try {
+    const raw = read(TAG_IDENTITIES_KEY);
+    return raw ? cleanTagIdentities(JSON.parse(raw)) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveTagIdentities(all: Record<string, TagIdentity>) {
+  write(TAG_IDENTITIES_KEY, JSON.stringify(all));
+}
+
+/** Member id remembered on a tag page for a group fingerprint, or null. */
+export function getTagIdentity(fingerprint: string): string | null {
+  return getTagIdentities()[fingerprint]?.memberId ?? null;
+}
+
+/** Remember (or forget, with null) the member for a group fingerprint. */
+export function setTagIdentity(fingerprint: string, memberId: string | null): void {
+  const all = getTagIdentities();
+  if (memberId) all[fingerprint] = { memberId, savedAt: Date.now() };
+  else if (fingerprint in all) delete all[fingerprint];
+  else return;
+  saveTagIdentities(all);
+}
+
+/**
+ * Hand-over from a tag page to the full group link: if this browser has no
+ * identity for `groupId` yet but picked one on one of its tags (stored by
+ * fingerprint), adopt it with setIdentity() and drop the tag entry. Pass
+ * `isActiveMember` to discard entries for members that no longer exist or
+ * are archived. Returns the adopted member id, or null.
+ */
+export function adoptTagIdentity(
+  groupId: string,
+  groupName?: string,
+  isActiveMember: (memberId: string) => boolean = () => true,
+): string | null {
+  if (getIdentity(groupId)) return null;
+  const fingerprint = groupFingerprint(groupId);
+  const all = getTagIdentities();
+  const entry = all[fingerprint];
+  if (!entry) return null;
+  delete all[fingerprint];
+  saveTagIdentities(all);
+  if (!isActiveMember(entry.memberId)) return null;
+  setIdentity(groupId, entry.memberId, groupName);
+  return entry.memberId;
+}
+
+// ---------------------------------------------------------------------------
 // Device id
 // ---------------------------------------------------------------------------
 
@@ -240,16 +333,25 @@ export function getActor(groupId: string): { memberId: string | null; deviceId: 
 // Export / import
 // ---------------------------------------------------------------------------
 
-/** Serialise remembered groups (not the device id, which is per device) to JSON. */
+/**
+ * Serialise remembered groups and tag-page identities (not the device id,
+ * which is per device) to JSON.
+ */
 export function exportLocalData(): string {
-  const data: LocalDataExport = { version: 1, groups: getLocalGroups() };
+  const tagIdentities = getTagIdentities();
+  const data: LocalDataExport = {
+    version: 1,
+    groups: getLocalGroups(),
+    ...(Object.keys(tagIdentities).length ? { tagIdentities } : {}),
+  };
   return JSON.stringify(data, null, 2);
 }
 
 /**
  * Import data produced by exportLocalData(). "merge" (default) keeps local
  * groups and overwrites entries present in the import, keeping a local
- * identity when the import has none; "replace" discards local groups.
+ * identity when the import has none (tag identities merge the same way, by
+ * fingerprint); "replace" discards local groups and tag identities.
  * Returns the number of imported groups. Throws on invalid input.
  */
 export function importLocalData(json: string, mode: "merge" | "replace" = "merge"): number {
@@ -259,6 +361,9 @@ export function importLocalData(json: string, mode: "merge" | "replace" = "merge
     const existing = byId.get(g.id);
     byId.set(g.id, existing ? { ...existing, ...g, memberId: g.memberId ?? existing.memberId } : g);
   }
+  const imported = cleanTagIdentities(data.tagIdentities);
+  if (mode === "replace") saveTagIdentities(imported);
+  else if (Object.keys(imported).length) saveTagIdentities({ ...getTagIdentities(), ...imported });
   saveGroups([...byId.values()]);
   return data.groups.length;
 }

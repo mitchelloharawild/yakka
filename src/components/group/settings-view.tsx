@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import {
+  BellIcon,
   CopyIcon,
   DownloadIcon,
   KeyRoundIcon,
@@ -27,6 +28,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { InstallPrompt } from "@/components/pwa/install-prompt";
+import { PushToggle } from "@/components/pwa/push-toggle";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -89,6 +92,7 @@ export function SettingsView() {
       {locked && <UnlockCard onUnlock={setPin} />}
       <GeneralSettings key={group.updatedAt.getTime()} pin={pin} locked={locked} onPinRejected={onPinRejected} />
       <PinSettings pin={pin} locked={locked} onPinChange={setPin} />
+      <NotificationSettings />
       <ShareSettings />
       <TransferSettings />
       <LocalDataSettings />
@@ -356,6 +360,18 @@ function PinSettings({
           )}
         </div>
       </form>
+    </Section>
+  );
+}
+
+function NotificationSettings() {
+  const t = useTranslations("group.settings");
+  const group = useGroup();
+  const { me } = useGroupIdentity();
+  return (
+    <Section title={t("notifications")} hint={t("notificationsHint")} icon={<BellIcon className="size-4" />}>
+      <PushToggle groupId={group.id} memberId={me?.id ?? null} />
+      <InstallPrompt />
     </Section>
   );
 }
