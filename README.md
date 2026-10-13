@@ -9,7 +9,11 @@ built on the access model of [Spliit](https://github.com/spliit-app/spliit):
 no sign-up, groups are shared by link, and your identity in each group is
 remembered by your browser.
 
-> Status: early scaffolding. Nothing works yet.
+> Status: v1 works end to end: groups shared by link, recurring chores with
+> due/overdue status, tap-to-complete from QR codes and NFC tags (with undo),
+> a REST API, inbound and signed outbound webhooks, Web Push reminders, an
+> installable PWA with an offline queue, and Docker (Postgres or SQLite) or
+> Vercel deployment. English only for now.
 
 ## Development
 
@@ -26,7 +30,7 @@ npm run dev               # http://localhost:3000
 
 SQLite instead of Postgres: set `DATABASE_URL="file:./data/yakka.db"` in
 `.env`, then `npm run db:deploy`. `npm run build` also bundles the service
-worker (`public/sw.js`). The service worker is only registered in production
+worker (served at `/sw.js`). The service worker is only registered in production
 builds (`npm run build && npm start`).
 
 ## Deployment
@@ -44,10 +48,12 @@ docker run -d -p 3000:3000 -v yakka-data:/data ghcr.io/mitchelloharawild/yakka
 
 - [Architecture](docs/ARCHITECTURE.md): data model, tap-to-complete flow,
   identity in the browser, API and webhooks, scheduling and deployment.
-- [Development](docs/DEVELOPMENT.md): code layout, conventions, ownership
-  and Next.js 16 gotchas.
+- [Development](docs/DEVELOPMENT.md): code layout, conventions and
+  Next.js 16 gotchas.
 - [Deployment](docs/DEPLOYMENT.md): Vercel, Docker (Postgres or SQLite),
   environment variables, HTTPS, VAPID keys, rate limiting.
+- [API](docs/API.md): REST API, inbound hooks, outbound webhooks and
+  signature verification.
 - [Naming](docs/NAMING.md): how the name was chosen.
 
 ## Stack

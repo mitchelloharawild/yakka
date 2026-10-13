@@ -1,7 +1,7 @@
 # Development guide
 
 Conventions for working on Yakka. Read [ARCHITECTURE.md](ARCHITECTURE.md) first
-for the design. This file covers how the code is laid out, who owns what, and
+for the design. This file covers how the code is laid out, who built what, and
 the Next.js 16 / Prisma 7 traps we have already hit.
 
 ## Setup
@@ -33,17 +33,19 @@ commit.
 
 ## Directory layout and ownership
 
-Parallel work is split by area. **Only edit files in your own area.** If you
-need something changed in a shared file, keep the change minimal and additive,
-and say so in your commit message.
+The parallel build phase (four agents, one area each) is over, so any change
+may touch any area. The table records who built what and is still a good map
+of where things live; the "frozen"/"don't change" notes are guidance now, not
+rules (schema changes need both a Postgres and a SQLite migration).
 
-| Path | Owner | Notes |
+| Path | Built by | Notes |
 |---|---|---|
 | `prisma/schema.prisma`, `prisma/migrations/` | foundation (frozen) | **Don't change the schema.** Ask first if you must |
 | `package.json`, `package-lock.json` | foundation (frozen) | Every dependency is already installed (list below) |
 | `src/lib/{db,env,ids,errors,schedule,assignee,activity,events}.ts` | foundation | Shared domain library. Bug fixes are fine; keep the APIs stable |
 | `src/lib/services/{groups,members,chores,completions}.ts` | foundation, extended by A | Business logic for the tRPC routers |
 | `src/lib/client/local-groups.ts` | foundation | Browser identity store, used by A and B |
+| `src/components/identity-picker.tsx` | integration | The one "Who are you?" picker, used by the group shell and `/t/{token}` |
 | `src/trpc/init.ts`, `src/trpc/routers/_app.ts`, `src/trpc/{client,server,query-client}.tsx?` | foundation | Shouldn't need edits |
 | `src/app/layout.tsx`, `src/components/{providers,app-header,theme-toggle}.tsx` | foundation | A may restyle the header |
 | `src/components/ui/*` | shared (shadcn) | Add components with `npx shadcn@latest add <name>`; don't hand-edit existing ones |
@@ -328,6 +330,12 @@ The localStorage layout follows ARCHITECTURE §4:
   name?)`, `setStarred`, `removeLocalGroup`, `getDeviceId()`,
   `getActor(groupId)` (gives `{memberId, deviceId}` for tRPC `actor`), and
   `exportLocalData()` / `importLocalData(json, "merge"|"replace")`.
+- Tag pages that don't know the group id store the picked identity in
+  `tagIdentities = { [groupFingerprint]: { memberId, savedAt } }`
+  (`getTagIdentity` / `setTagIdentity`). When the group link is opened, the
+  group shell calls `adoptTagIdentity(groupId, name, isActiveMember)`, which
+  moves a matching entry into `groups`. Export/import include
+  `tagIdentities` as an optional field of the version 1 format.
 - It's safe to import from SSR code. Corrupt or blocked storage falls back
   to memory.
 
