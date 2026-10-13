@@ -1,0 +1,201 @@
+// Yakka data model. See docs/ARCHITECTURE.md for the design.
+//
+// There are no user accounts: a Group's id is the secret that grants access
+// (as in Spliit), and a Tag's token is a narrower secret that can only
+// complete its own chore.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Group {
+  id          String    @id // nanoid; knowing it grants full access
+  name        String
+  timezone    String    @default("UTC")
+  // Whether an unknown device may pick an identity from a tag scan, or must
+  // open the full group link first.
+  joinFromTag Boolean   @default(true)
+  undoSeconds Int       @default(10)
+  settingsPin String? // optional hashed PIN protecting group settings
+  createdAt   DateTime  @default(now())
+  deletedAt   DateTime? // soft delete; purged by cron
+
+  members      Member[]
+  chores       Chore[]
+  tags         Tag[]
+  apiTokens    ApiToken[]
+  inboundHooks InboundHook[]
+  webhooks     Webhook[]
+  activities   Activity[]
+}
+
+model Member {
+  id         String    @id @default(cuid())
+  groupId    String
+  name       String
+  colour     String?
+  createdAt  DateTime  @default(now())
+  archivedAt DateTime?
+
+  group       Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  completions Completion[]
+  assigned    Chore[]      @relation("ChoreAssignee")
+  pushSubs    PushSub[]
+
+  @@index([groupId])
+}
+
+enum ScheduleAnchor {
+  DUE_DATE // next due is counted from the scheduled date
+  COMPLETION // next due is counted from the last completion
+}
+
+enum AssigneeMode {
+  ANYONE
+  FIXED
+  ROUND_ROBIN
+}
+
+model Chore {
+  id           String         @id @default(cuid())
+  groupId      String
+  title        String
+  icon         String?
+  // iCalendar RRULE; null means a one-off or unscheduled chore. The next due
+  // date is computed on read from this plus the latest non-undone completion.
+  rrule        String?
+  anchor       ScheduleAnchor @default(COMPLETION)
+  assigneeMode AssigneeMode   @default(ANYONE)
+  assigneeId   String?
+  graceMinutes Int            @default(0)
+  createdAt    DateTime       @default(now())
+  archivedAt   DateTime?
+
+  group        Group         @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  assignee     Member?       @relation("ChoreAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  tags         Tag[]
+  completions  Completion[]
+  inboundHooks InboundHook[]
+
+  @@index([groupId])
+}
+
+enum TagKind {
+  QR
+  NFC
+  URL
+}
+
+model Tag {
+  id        String    @id @default(cuid())
+  token     String    @unique // short secret encoded in /t/{token}
+  groupId   String
+  choreId   String
+  kind      TagKind   @default(QR)
+  label     String?
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  group       Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  chore       Chore        @relation(fields: [choreId], references: [id], onDelete: Cascade)
+  completions Completion[]
+
+  @@index([choreId])
+}
+
+enum CompletionSource {
+  TAG
+  MANUAL
+  API
+  WEBHOOK
+}
+
+model Completion {
+  id          String           @id @default(cuid())
+  choreId     String
+  memberId    String? // null for automations without a default member
+  source      CompletionSource
+  tagId       String?
+  deviceId    String? // from the browser's localStorage, for the audit log
+  completedAt DateTime         @default(now())
+  undoneAt    DateTime?
+
+  chore  Chore   @relation(fields: [choreId], references: [id], onDelete: Cascade)
+  member Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  tag    Tag?    @relation(fields: [tagId], references: [id], onDelete: SetNull)
+
+  @@index([choreId, completedAt])
+}
+
+model ApiToken {
+  id         String    @id @default(cuid())
+  groupId    String
+  name       String
+  hash       String    @unique // only the hash of the bearer token is stored
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+}
+
+// POST /api/hooks/{secret} completes one chore, e.g. from Home Assistant.
+model InboundHook {
+  id              String    @id @default(cuid())
+  groupId         String
+  choreId         String
+  secret          String    @unique
+  defaultMemberId String?
+  createdAt       DateTime  @default(now())
+  revokedAt       DateTime?
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  chore Chore @relation(fields: [choreId], references: [id], onDelete: Cascade)
+}
+
+// Outbound, HMAC-signed webhook subscriptions.
+model Webhook {
+  id         String    @id @default(cuid())
+  groupId    String
+  url        String
+  secret     String
+  events     String[] // chore.completed, chore.due, chore.overdue
+  failCount  Int       @default(0)
+  createdAt  DateTime  @default(now())
+  disabledAt DateTime?
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+}
+
+// Web Push subscription for one member on one device.
+model PushSub {
+  id        String   @id @default(cuid())
+  memberId  String
+  deviceId  String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+}
+
+// Audit log, like Spliit's Activity tab.
+model Activity {
+  id        String   @id @default(cuid())
+  groupId   String
+  type      String // e.g. completion.created, chore.updated, member.created
+  memberId  String?
+  deviceId  String?
+  data      Json?
+  createdAt DateTime @default(now())
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, createdAt])
+}

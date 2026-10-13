@@ -1,0 +1,15 @@
+# Local Postgres for development: `docker compose up -d`
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: yakka
+      POSTGRES_PASSWORD: yakka
+      POSTGRES_DB: yakka
+    ports:
+      - "5432:5432"
+    volumes:
+      - yakka-db:/var/lib/postgresql/data
+
+volumes:
+  yakka-db:
