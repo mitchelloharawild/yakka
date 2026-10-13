@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Full-bleed background; artwork stays inside the 80% safe zone (r = 204). -->
+  <rect width="512" height="512" fill="#15803d"/>
+  <circle cx="256" cy="256" r="124" fill="none" stroke="#dcfce7" stroke-width="22" opacity="0.35"/>
+  <path d="M184 260 L234 310 L330 208" fill="none" stroke="#ffffff" stroke-width="38" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
