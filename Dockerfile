@@ -28,12 +28,9 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json prisma.config.ts ./
 COPY prisma ./prisma
-# Newer npm 11 releases reject the lockfile (it lacks the optional
-# @emnapi/core and @emnapi/runtime entries); the npm that wrote it accepts it.
-ARG NPM_VERSION=11.6.2
-RUN npm install -g "npm@${NPM_VERSION}" --no-audit --no-fund && npm ci --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 
-# --- Build: Next standalone output + service worker --------------------------
+# --- Build: service worker bundle + Next standalone output --------------------
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
