@@ -215,6 +215,41 @@ apply backoff, and set `Webhook.failCount`/`disabledAt`. C can register an
 `onEvent("*")` listener to kick off delivery straight away. The cron job
 emits `chore.due` and `chore.overdue`.
 
+### Integrations (`src/lib/integrations/`, Agent C)
+
+- `webhooks.ts` is the delivery worker. `processDueDeliveries({ groupId?, now? })`
+  claims each row with a conditional update, so concurrent workers never
+  double-send. It retries on the schedule in `backoff.ts` and auto-disables a
+  webhook after 15 consecutive failed attempts. `listeners.ts` registers an
+  `onEvent("*")` listener that delivers straight away via `after()`. The
+  integrations tRPC router and the REST routes import it, so it's active in
+  every server bundle that emits events.
+- `cron.ts` exports **`runCronTick(opts?: { now?: Date; since?: Date }): Promise<CronTickResult>`**.
+  Agent D calls it from node-cron every 5 minutes in Docker. It runs due/overdue
+  detection (ChoreNotice), Web Push, ntfy/Apprise, webhook delivery and the
+  purge. `since` defaults to the previous in-process run, clamped to between
+  15 minutes and 6 hours ago. Overlap is harmless.
+- REST and webhook payloads are documented in [API.md](API.md).
+
+### Push payload
+
+`sendPushToGroup(groupId, payload, { memberIds? })` in
+`src/lib/integrations/push.ts` sends this JSON as the push message body. The
+service worker (`src/app/sw.ts`, Agent D) parses it and shows a notification:
+
+```ts
+interface PushPayload {
+  title: string;  // e.g. "🐈 Feed the cat"
+  body: string;   // e.g. "Overdue — Sam's turn"
+  url: string;    // same-origin path to open on click, e.g. "/groups/{groupId}"
+  tag?: string;   // "chore-{choreId}": a later notice for the same chore replaces the earlier one
+}
+```
+
+Without VAPID keys it does nothing (and logs once). Push services answering
+404 or 410 cause the `PushSub` to be deleted. Other failures increment
+`failCount`, and the subscription is deleted after 5 of them.
+
 ### Other
 
 - `src/lib/env.ts`: call `env()` for a typed, lazily parsed environment
