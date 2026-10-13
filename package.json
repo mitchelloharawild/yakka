@@ -17,6 +17,7 @@
     "db:studio": "prisma studio",
     "db:sqlite:schema": "node scripts/sqlite-schema.mjs",
     "sw:build": "node scripts/build-sw.mjs",
+    "emoji:build": "node scripts/build-emoji.mjs",
     "icons": "sh scripts/generate-icons.sh"
   },
   "dependencies": {
@@ -74,6 +75,7 @@
     "@types/react-dom": "^19",
     "@types/web-push": "^3.6.4",
     "@vitest/coverage-v8": "^5.0.4",
+    "emojibase-data": "^17.0.0",
     "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "16.4.0",
