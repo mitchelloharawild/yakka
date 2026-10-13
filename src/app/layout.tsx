@@ -2,10 +2,14 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale } from "next-intl/server";
+import { connection } from "next/server";
+import { Suspense } from "react";
+import { Analytics } from "@/components/analytics";
 import { AppHeader } from "@/components/app-header";
 import { Providers } from "@/components/providers";
 import { OfflineQueueIndicator } from "@/components/pwa/offline-queue-indicator";
 import { ServiceWorkerRegistration } from "@/components/pwa/service-worker-registration";
+import { analyticsConfig } from "@/lib/analytics";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -50,9 +54,19 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
             <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 py-6">{children}</main>
             <ServiceWorkerRegistration />
             <OfflineQueueIndicator variant="floating" announce />
+            <Suspense fallback={null}>
+              <AnalyticsSlot />
+            </Suspense>
           </Providers>
         </NextIntlClientProvider>
       </body>
     </html>
   );
+}
+
+/** Reads ANALYTICS_* at request time (not build time), so one image serves any config. */
+async function AnalyticsSlot() {
+  await connection();
+  const config = analyticsConfig();
+  return config ? <Analytics {...config} /> : null;
 }

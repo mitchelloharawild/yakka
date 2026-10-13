@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { stripIdsFromPath } from "./analytics";
+import { analyticsConfig, stripIdsFromPath } from "./analytics";
 
 describe("stripIdsFromPath", () => {
   it("replaces group ids", () => {
@@ -32,5 +32,23 @@ describe("stripIdsFromPath", () => {
     expect(stripIdsFromPath("/offline")).toBe("/offline");
     expect(stripIdsFromPath("/groups")).toBe("/groups");
     expect(stripIdsFromPath("/groups/")).toBe("/groups/");
+  });
+});
+
+describe("analyticsConfig", () => {
+  it("is off unless a known provider and a site id are set", () => {
+    expect(analyticsConfig({})).toBeNull();
+    expect(analyticsConfig({ ANALYTICS_PROVIDER: "plausible" })).toBeNull();
+    expect(analyticsConfig({ ANALYTICS_PROVIDER: "matomo", ANALYTICS_SITE_ID: "1" })).toBeNull();
+  });
+  it("defaults the script URL per provider and allows a self-hosted one", () => {
+    expect(analyticsConfig({ ANALYTICS_PROVIDER: "Plausible", ANALYTICS_SITE_ID: "yakka.example" })).toEqual({
+      provider: "plausible",
+      siteId: "yakka.example",
+      scriptUrl: "https://plausible.io/js/script.manual.js",
+    });
+    expect(
+      analyticsConfig({ ANALYTICS_PROVIDER: "umami", ANALYTICS_SITE_ID: "abc", ANALYTICS_SCRIPT_URL: "https://u.example/s.js" }),
+    ).toMatchObject({ provider: "umami", scriptUrl: "https://u.example/s.js" });
   });
 });

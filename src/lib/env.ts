@@ -39,7 +39,7 @@ const serverEnvSchema = z.object({
   ENABLE_GROUP_DELETION: bool(true),
   /** Default for Group.joinFromTag on new groups. */
   ALLOW_JOIN_FROM_TAG_DEFAULT: bool(true),
-  /** e.g. "plausible" or "umami"; undefined disables analytics. */
+  /** "plausible" or "umami" (with ANALYTICS_SITE_ID); undefined disables analytics. Read by src/lib/analytics.ts. */
   ANALYTICS_PROVIDER: optionalString,
   /**
    * Outbound webhooks may target private/LAN addresses (e.g. Home Assistant).

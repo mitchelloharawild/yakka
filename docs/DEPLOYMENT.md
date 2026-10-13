@@ -44,7 +44,7 @@ than the installed app (ARCHITECTURE §3).
 | `ENABLE_INTERNAL_CRON` | `false` (image: `true`) | Run the 5-minute tick in-process. Ignored on Vercel |
 | `ENABLE_GROUP_DELETION` | `true` | |
 | `ALLOW_JOIN_FROM_TAG_DEFAULT` | `true` | Default `joinFromTag` for new groups |
-| `ANALYTICS_PROVIDER` | | See [Analytics](#analytics) |
+| `ANALYTICS_PROVIDER` / `ANALYTICS_SITE_ID` / `ANALYTICS_SCRIPT_URL` | | Plausible or Umami page views with ids stripped. See [Analytics](#analytics) |
 | `WEBHOOK_ALLOW_PRIVATE_NETWORKS` | `true`; **`false` on Vercel** | Outbound webhooks to LAN/loopback addresses. Set `false` on any instance strangers can use ([API.md](API.md#allowed-urls-ssrf)) |
 | `NTFY_URL` / `NTFY_TOKEN` | | **Single-household instances only.** Sends every group's due/overdue notices (group name, chore title, group link) to one ntfy topic. Off unless set |
 | `APPRISE_URL` | | Same, to an Apprise API notify URL. **Single-household instances only** |
@@ -227,10 +227,22 @@ passes through unchanged.
 
 ## Analytics
 
-Group ids and tag tokens are secrets. If you set `ANALYTICS_PROVIDER`, report
-paths through `stripIdsFromPath()` from `src/lib/analytics.ts`
-(`/groups/Xk3…/chores/cm…?as=…` becomes `/groups/[groupId]/chores/[id]`), and
-never send the query string. No provider script is bundled yet.
+Off unless configured. Plausible and Umami are supported:
+
+| Variable | Notes |
+|---|---|
+| `ANALYTICS_PROVIDER` | `plausible` or `umami` |
+| `ANALYTICS_SITE_ID` | Plausible: the site's domain as registered (`yakka.example.com`). Umami: the website id |
+| `ANALYTICS_SCRIPT_URL` | Optional, for self-hosted instances. Defaults to `https://plausible.io/js/script.manual.js` or `https://cloud.umami.is/script.js` |
+
+Group ids and tag tokens are secrets, so automatic tracking is turned off and
+every page view is reported by `src/components/analytics.tsx` with
+`stripIdsFromPath()` from `src/lib/analytics.ts`
+(`/groups/Xk3…/settings?as=…` becomes `/groups/[groupId]/settings`); the
+query string is never sent. Umami also gets an empty referrer and a fixed
+title, and the group and tag pages send `Referrer-Policy: no-referrer`. The
+variables are read at request time, so the same image works with any
+setting.
 
 ## Service worker
 

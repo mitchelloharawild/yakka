@@ -2,9 +2,9 @@
  * Analytics privacy helper (ARCHITECTURE §7, like Spliit). OWNED BY: Agent D.
  *
  * Group ids and tag tokens are access secrets, so they must never reach an
- * analytics provider. When ANALYTICS_PROVIDER is set, report
- * `stripIdsFromPath(location.pathname)` instead of the real URL (and never
- * the query string: `?as=` carries a member id). Safe on server and client.
+ * analytics provider. <Analytics /> (src/components/analytics.tsx) reports
+ * `stripIdsFromPath(pathname)` instead of the real URL (and never the query
+ * string: `?as=` carries a member id). Safe on server and client.
  */
 
 const ID = /^c[a-z0-9]{20,32}$/; // cuid (members, chores, completions, ...)
@@ -37,8 +37,28 @@ export function stripIdsFromPath(path: string): string {
   return out || "/";
 }
 
-/** The configured provider ("plausible", "umami", ...) or null. Server-side. */
-export function analyticsProvider(): string | null {
-  const value = process.env.ANALYTICS_PROVIDER?.trim();
-  return value ? value : null;
+/** Page-view analytics settings for <Analytics />. */
+export interface AnalyticsConfig {
+  provider: "plausible" | "umami";
+  /** Plausible: the site's domain (data-domain). Umami: the website id. */
+  siteId: string;
+  scriptUrl: string;
+}
+
+const DEFAULT_SCRIPTS: Record<AnalyticsConfig["provider"], string> = {
+  // The "manual" variant doesn't track on its own: we send stripped URLs.
+  plausible: "https://plausible.io/js/script.manual.js",
+  umami: "https://cloud.umami.is/script.js",
+};
+
+/**
+ * Analytics settings from ANALYTICS_PROVIDER ("plausible" | "umami"),
+ * ANALYTICS_SITE_ID and optional ANALYTICS_SCRIPT_URL (self-hosted
+ * instances), or null when unset, unknown or incomplete. Server-side.
+ */
+export function analyticsConfig(env: Record<string, string | undefined> = process.env): AnalyticsConfig | null {
+  const provider = env.ANALYTICS_PROVIDER?.trim().toLowerCase();
+  const siteId = env.ANALYTICS_SITE_ID?.trim();
+  if ((provider !== "plausible" && provider !== "umami") || !siteId) return null;
+  return { provider, siteId, scriptUrl: env.ANALYTICS_SCRIPT_URL?.trim() || DEFAULT_SCRIPTS[provider] };
 }
