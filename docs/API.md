@@ -364,7 +364,10 @@ the scheduled jobs:
   notify twice. For each new one, Yakka sends `chore.due` or `chore.overdue`
   webhooks and Web Push. The push goes to the assignee for fixed and
   round-robin chores, and to every member otherwise. If `NTFY_URL` or
-  `APPRISE_URL` is set, the notice goes there too.
+  `APPRISE_URL` is set, the notice goes there too, titled
+  "{group name}: {chore}". These are **instance-wide**: every group's
+  notices, with links containing the group id, go to the one topic. Only set
+  them on a self-hosted instance used by a single household.
 - Send due webhook deliveries (retries included).
 - Purge groups that were soft-deleted more than 30 days ago (also available on
   its own at `/api/cron/purge-deleted-groups`).

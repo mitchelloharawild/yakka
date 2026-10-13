@@ -46,6 +46,8 @@ than the installed app (ARCHITECTURE §3).
 | `ALLOW_JOIN_FROM_TAG_DEFAULT` | `true` | Default `joinFromTag` for new groups |
 | `ANALYTICS_PROVIDER` | | See [Analytics](#analytics) |
 | `WEBHOOK_ALLOW_PRIVATE_NETWORKS` | `true`; **`false` on Vercel** | Outbound webhooks to LAN/loopback addresses. Set `false` on any instance strangers can use ([API.md](API.md#allowed-urls-ssrf)) |
+| `NTFY_URL` / `NTFY_TOKEN` | | **Single-household instances only.** Sends every group's due/overdue notices (group name, chore title, group link) to one ntfy topic. Off unless set |
+| `APPRISE_URL` | | Same, to an Apprise API notify URL. **Single-household instances only** |
 | `RATE_LIMIT_ENABLED` | `true` | |
 | `RATE_LIMIT_IP_HEADER` | `x-forwarded-for` (Vercel: `x-vercel-forwarded-for`) | Which header holds the client IP: `x-forwarded-for`, `x-real-ip`, `cf-connecting-ip`, `x-vercel-forwarded-for` or `none`. See [Rate limiting](#rate-limiting) |
 | `RATE_LIMIT_PROXY_HOPS` | `1` | With `x-forwarded-for`: trusted proxies that append to it |

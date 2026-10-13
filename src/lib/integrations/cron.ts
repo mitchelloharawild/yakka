@@ -233,7 +233,11 @@ export async function detectDueNotices(input: { since: Date; now: Date }) {
         } catch (err) {
           console.error("[cron] push failed", err);
         }
-        await sendExternalNotice({ ...payload, priority: kind === "overdue" ? "high" : "default" });
+        await sendExternalNotice({
+          ...payload,
+          groupName: group.name,
+          priority: kind === "overdue" ? "high" : "default",
+        });
       }
     }
     if (groups.length < GROUP_PAGE) break;

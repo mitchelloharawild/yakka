@@ -1,19 +1,25 @@
 /**
  * Optional instance-wide notification sinks for self-hosters: ntfy and
- * Apprise. OWNED BY: Agent C. Each is a single POST when its env var is set;
- * failures are logged and swallowed.
+ * Apprise. OWNED BY: Agent C. Each is a single POST when its env var is set
+ * (both are off unless NTFY_URL / APPRISE_URL is set); failures are logged
+ * and swallowed.
  *
- * Note: the click URL includes the group id (its access secret), so only
- * point these at a topic/server you control (not a public ntfy.sh topic).
+ * INSTANCE-WIDE: every group's due/overdue notices go to the same sink, so
+ * this is for a single-household (self-hosted) instance only. Never set it
+ * on an instance other people use. The group name is included so several
+ * groups stay distinguishable. The click URL includes the group id (its
+ * access secret), so only point these at a topic/server you control (not a
+ * public ntfy.sh topic).
  */
 import { env } from "@/lib/env";
 import type { PushPayload } from "@/lib/integrations/push";
 
 /** Send a notice to NTFY_URL and/or APPRISE_URL. Returns which sinks accepted it. */
 export async function sendExternalNotice(
-  payload: PushPayload & { priority?: "default" | "high" },
+  payload: PushPayload & { priority?: "default" | "high"; groupName?: string },
 ): Promise<{ ntfy?: boolean; apprise?: boolean }> {
   const e = env();
+  const title = payload.groupName ? `${payload.groupName}: ${payload.title}` : payload.title;
   const clickUrl = payload.url.startsWith("/") ? `${e.BASE_URL}${payload.url}` : payload.url;
   const out: { ntfy?: boolean; apprise?: boolean } = {};
   const jobs: Promise<void>[] = [];
@@ -25,7 +31,7 @@ export async function sendExternalNotice(
         body: payload.body,
         headers: {
           // ntfy reads non-ASCII titles only via RFC 2047; keep it simple and strip them.
-          Title: payload.title.replace(/[^\x20-\x7e]/g, "").trim() || "Yakka",
+          Title: title.replace(/[^\x20-\x7e]/g, "").trim() || "Yakka",
           Click: clickUrl,
           Tags: "broom",
           Priority: payload.priority === "high" ? "high" : "default",
@@ -50,7 +56,7 @@ export async function sendExternalNotice(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: payload.title,
+          title,
           body: `${payload.body}\n${clickUrl}`,
           type: payload.priority === "high" ? "warning" : "info",
         }),
