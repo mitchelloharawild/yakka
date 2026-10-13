@@ -10,13 +10,19 @@
 import { z } from "zod";
 import { env } from "@/lib/env";
 import { DomainError, notFound } from "@/lib/errors";
+import { isAllowedPushEndpoint, pushHostPatterns } from "@/lib/integrations/url-safety";
 import { baseProcedure, createTRPCRouter, groupProcedure } from "@/trpc/init";
 
 const endpointSchema = z.url().max(2048).startsWith("https://");
+/** Saved endpoints must be on a known push service: the cron job POSTs to them (SSRF). */
+const newEndpointSchema = endpointSchema.refine(
+  (v) => isAllowedPushEndpoint(v, pushHostPatterns(env().PUSH_ALLOWED_HOSTS)),
+  "PUSH_ENDPOINT_NOT_ALLOWED",
+);
 
 /** Shape of `PushSubscription.toJSON()`. */
 const subscriptionSchema = z.object({
-  endpoint: endpointSchema,
+  endpoint: newEndpointSchema,
   expirationTime: z.number().nullish(),
   keys: z.object({ p256dh: z.string().min(1).max(256), auth: z.string().min(1).max(256) }),
 });

@@ -13,7 +13,13 @@ import {
   TIMESTAMP_HEADER,
   verifySignature,
 } from "@/lib/integrations/signing";
-import { isPrivateAddress, parseIPv6, validateWebhookUrl } from "@/lib/integrations/url-safety";
+import {
+  isAllowedPushEndpoint,
+  isPrivateAddress,
+  parseIPv6,
+  pushHostPatterns,
+  validateWebhookUrl,
+} from "@/lib/integrations/url-safety";
 
 const secret = "whsec_test";
 const body = JSON.stringify({ id: "evt_1", type: "chore.completed" });
@@ -195,5 +201,42 @@ describe("url safety", () => {
     expect(parseIPv6("::ffff:1.2.3.4")?.slice(10)).toEqual([0xff, 0xff, 1, 2, 3, 4]);
     expect(parseIPv6("1.2.3.4")).toBeNull();
     expect(parseIPv6("nope")).toBeNull();
+  });
+});
+
+describe("push endpoint allowlist", () => {
+  it("accepts the browsers' push services", () => {
+    for (const e of [
+      "https://fcm.googleapis.com/fcm/send/abc:def",
+      "https://updates.push.services.mozilla.com/wpush/v2/gAAAA",
+      "https://web.push.apple.com/QGx",
+      "https://wns2-par02p.notify.windows.com/w/?token=x",
+    ]) {
+      expect(isAllowedPushEndpoint(e), e).toBe(true);
+    }
+  });
+  it("refuses anything else", () => {
+    for (const e of [
+      "https://169.254.169.254/latest/meta-data",
+      "https://evil.example/fcm.googleapis.com",
+      "https://fcm.googleapis.com.evil.example/x",
+      "https://fcm.googleapis.com:8443/x",
+      "http://fcm.googleapis.com/x",
+      "https://push.services.mozilla.com.attacker.net/",
+      "https://192.168.1.10/push",
+      "not a url",
+    ]) {
+      expect(isAllowedPushEndpoint(e), e).toBe(false);
+    }
+  });
+  it("adds hosts from PUSH_ALLOWED_HOSTS", () => {
+    const patterns = pushHostPatterns(" push.example.com, *.ntfy.example ");
+    expect(isAllowedPushEndpoint("https://push.example.com/up/1", patterns)).toBe(true);
+    expect(isAllowedPushEndpoint("https://a.ntfy.example/up/1", patterns)).toBe(true);
+    expect(isAllowedPushEndpoint("https://other.example/up/1", patterns)).toBe(false);
+    const any = pushHostPatterns("*");
+    expect(isAllowedPushEndpoint("https://anything.example/x", any)).toBe(true);
+    expect(isAllowedPushEndpoint("https://127.0.0.1/x", any)).toBe(false);
+    expect(isAllowedPushEndpoint("https://localhost/x", any)).toBe(false);
   });
 });

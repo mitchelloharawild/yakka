@@ -39,6 +39,7 @@ than the installed app (ARCHITECTURE §3).
 | `BASE_URL` | `http://localhost:3000` | Public origin, no trailing slash |
 | `CRON_SECRET` | | `Authorization: Bearer` for `/api/cron/*`. Vercel sends it automatically |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | | Web Push. Without the keys, push is off and the toggle says so |
+| `PUSH_ALLOWED_HOSTS` | | Extra Web Push service hosts (comma-separated, `*.` for subdomains). FCM, Mozilla, Apple and WNS are always allowed; see [VAPID keys](#vapid-keys) |
 | `ENABLE_INTERNAL_CRON` | `false` (image: `true`) | Run the 5-minute tick in-process. Ignored on Vercel |
 | `ENABLE_GROUP_DELETION` | `true` | |
 | `ALLOW_JOIN_FROM_TAG_DEFAULT` | `true` | Default `joinFromTag` for new groups |
@@ -59,6 +60,14 @@ Put the public key in `VAPID_PUBLIC_KEY`, the private key in
 `VAPID_PRIVATE_KEY`, and a contact (`mailto:you@example.com` or an https URL)
 in `VAPID_SUBJECT`. Keep the keys: changing them invalidates every existing
 subscription, and members have to turn notifications on again.
+
+A browser sends its push subscription's endpoint URL, and the cron job POSTs
+to it. To stop that being used to make the server call arbitrary URLs,
+subscriptions are only accepted for the push services browsers use:
+`fcm.googleapis.com` (Chrome, Edge, Samsung Internet), `*.push.services.mozilla.com`
+(Firefox), `*.push.apple.com` (Safari) and `*.notify.windows.com`, over https
+on the default port. Add others with `PUSH_ALLOWED_HOSTS`. Saved
+subscriptions on other hosts are deleted instead of being sent to.
 
 ## Vercel
 

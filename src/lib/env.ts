@@ -47,6 +47,12 @@ const serverEnvSchema = z.object({
    * instance where untrusted people can create groups.
    */
   WEBHOOK_ALLOW_PRIVATE_NETWORKS: bool(() => !isVercel()),
+  /**
+   * Extra Web Push service hosts to accept subscriptions for, comma-separated
+   * ("push.example.com,*.push.example.net"), on top of FCM, Mozilla, Apple
+   * and WNS. "*" accepts any public https host (not recommended).
+   */
+  PUSH_ALLOWED_HOSTS: optionalString,
   /** Optional ntfy topic URL (e.g. https://ntfy.sh/my-topic) that also receives due/overdue notices. */
   NTFY_URL: optionalString,
   /** Optional ntfy access token (sent as `Authorization: Bearer`). */

@@ -11,6 +11,7 @@
 import webpush from "web-push";
 import { prisma } from "@/lib/db";
 import { env, isPushConfigured } from "@/lib/env";
+import { isAllowedPushEndpoint, pushHostPatterns } from "@/lib/integrations/url-safety";
 
 /** The JSON payload of every push message. */
 export interface PushPayload {
@@ -69,8 +70,15 @@ export async function sendPushToGroup(
   });
   const result: PushResult = { sent: 0, failed: 0, removed: 0 };
   const body = JSON.stringify(payload);
+  const patterns = pushHostPatterns(env().PUSH_ALLOWED_HOSTS);
   await Promise.all(
     subs.map(async (sub) => {
+      // Saved before the host allowlist existed, or the allowlist shrank: never POST there.
+      if (!isAllowedPushEndpoint(sub.endpoint, patterns)) {
+        await prisma.pushSub.deleteMany({ where: { id: sub.id } });
+        result.removed++;
+        return;
+      }
       try {
         await webpush.sendNotification(
           { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },

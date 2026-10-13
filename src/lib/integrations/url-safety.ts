@@ -201,3 +201,48 @@ export function guardedLookup(allowPrivate: boolean, resolver: Resolver = system
     );
   };
 }
+
+// ---------------------------------------------------------------------------
+// Web Push endpoints
+// ---------------------------------------------------------------------------
+
+/**
+ * Push services browsers actually use. A subscription's endpoint comes from
+ * the client, and the cron job POSTs to it, so anything else would be an
+ * SSRF vector. `*.` matches any subdomain (not the bare domain).
+ */
+export const DEFAULT_PUSH_HOSTS = [
+  "fcm.googleapis.com", // Chrome, Edge (Chromium), Opera, Samsung Internet
+  "android.googleapis.com", // legacy GCM endpoints
+  "*.push.services.mozilla.com", // Firefox
+  "*.push.apple.com", // Safari / iOS
+  "*.notify.windows.com", // legacy Edge (WNS)
+];
+
+/** Parse PUSH_ALLOWED_HOSTS ("a.example,*.b.example"); "*" means any https host. */
+export function pushHostPatterns(extra: string | undefined): string[] {
+  const more = (extra ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  return [...DEFAULT_PUSH_HOSTS, ...more];
+}
+
+/** Whether `endpoint` is an https URL on one of the allowed push service hosts (default port only). */
+export function isAllowedPushEndpoint(endpoint: string, patterns: string[] = DEFAULT_PUSH_HOSTS): boolean {
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:" || url.username || url.password || url.port) return false;
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  return patterns.some((p) =>
+    p === "*" ? !isIP(host.replace(/^\[|\]$/g, "")) && !isPrivateHostname(host) : p.startsWith("*.") ? host.endsWith(p.slice(1)) : host === p,
+  );
+}
+
+function isPrivateHostname(host: string) {
+  return host === "localhost" || host.endsWith(".localhost");
+}

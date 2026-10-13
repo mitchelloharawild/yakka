@@ -257,7 +257,10 @@ interface PushPayload {
 }
 ```
 
-Without VAPID keys it does nothing (and logs once). Push services answering
+Without VAPID keys it does nothing (and logs once). Endpoints must be on a
+known push service (`isAllowedPushEndpoint` in `url-safety.ts`, extended by
+`PUSH_ALLOWED_HOSTS`): `push.subscribe` refuses others, and sending deletes
+any saved row that doesn't match. Push services answering
 404 or 410 cause the `PushSub` to be deleted. Other failures increment
 `failCount`, and the subscription is deleted after 5 of them.
 
