@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { env, resetEnvCache } from "@/lib/env";
 import { BACKOFF_SCHEDULE_MS, MAX_ATTEMPTS, nextRetryAt, shouldAutoDisable } from "@/lib/integrations/backoff";
 import { parseBearer } from "@/lib/integrations/bearer";
 import { matchMember } from "@/lib/integrations/member-match";
@@ -12,7 +13,7 @@ import {
   TIMESTAMP_HEADER,
   verifySignature,
 } from "@/lib/integrations/signing";
-import { isPrivateAddress, validateWebhookUrl } from "@/lib/integrations/url-safety";
+import { isPrivateAddress, parseIPv6, validateWebhookUrl } from "@/lib/integrations/url-safety";
 
 const secret = "whsec_test";
 const body = JSON.stringify({ id: "evt_1", type: "chore.completed" });
@@ -121,6 +122,29 @@ describe("matchMember", () => {
   });
 });
 
+describe("WEBHOOK_ALLOW_PRIVATE_NETWORKS default", () => {
+  const saved = { VERCEL: process.env.VERCEL, W: process.env.WEBHOOK_ALLOW_PRIVATE_NETWORKS };
+  afterEach(() => {
+    for (const [k, v] of [["VERCEL", saved.VERCEL], ["WEBHOOK_ALLOW_PRIVATE_NETWORKS", saved.W]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    resetEnvCache();
+  });
+  it("is on when self-hosted and off on Vercel, unless set explicitly", () => {
+    delete process.env.WEBHOOK_ALLOW_PRIVATE_NETWORKS;
+    delete process.env.VERCEL;
+    resetEnvCache();
+    expect(env().WEBHOOK_ALLOW_PRIVATE_NETWORKS).toBe(true);
+    process.env.VERCEL = "1";
+    resetEnvCache();
+    expect(env().WEBHOOK_ALLOW_PRIVATE_NETWORKS).toBe(false);
+    process.env.WEBHOOK_ALLOW_PRIVATE_NETWORKS = "true";
+    resetEnvCache();
+    expect(env().WEBHOOK_ALLOW_PRIVATE_NETWORKS).toBe(true);
+  });
+});
+
 describe("url safety", () => {
   it("accepts only http(s) without credentials", () => {
     expect(validateWebhookUrl("https://example.com/hook").ok).toBe(true);
@@ -137,5 +161,39 @@ describe("url safety", () => {
     for (const ip of ["8.8.8.8", "172.32.0.1", "1.1.1.1", "2606:4700::1111"]) {
       expect(isPrivateAddress(ip), ip).toBe(false);
     }
+  });
+  it("unwraps IPv4 embedded in IPv6 (mapped, translated, compatible, NAT64, 6to4)", () => {
+    // new URL() normalises [::ffff:127.0.0.1] to [::ffff:7f00:1]: the hex form must be caught too.
+    expect(new URL("http://[::ffff:127.0.0.1]/").hostname).toBe("[::ffff:7f00:1]");
+    for (const ip of [
+      "::ffff:7f00:1",
+      "::ffff:127.0.0.1",
+      "0:0:0:0:0:ffff:a9fe:a9fe", // 169.254.169.254
+      "::ffff:0:a00:1", // IPv4-translated 10.0.0.1
+      "::7f00:1", // IPv4-compatible 127.0.0.1
+      "::127.0.0.1",
+      "64:ff9b::7f00:1", // NAT64 127.0.0.1
+      "64:ff9b::192.168.0.1",
+      "2002:7f00:1::", // 6to4 of 127.0.0.1
+      "2002:c0a8:0101::1", // 6to4 of 192.168.1.1
+      "[::ffff:7f00:1]",
+      "fe80::1%eth0",
+    ]) {
+      expect(isPrivateAddress(ip), ip).toBe(true);
+    }
+    for (const ip of ["::ffff:808:808", "64:ff9b::8.8.8.8", "2002:808:808::1"]) {
+      expect(isPrivateAddress(ip), ip).toBe(false);
+    }
+  });
+  it("blocks other special IPv6 ranges", () => {
+    for (const ip of ["::", "fec0::1", "feff::1", "ff02::1", "fc00::1", "100::1", "2001:db8::1", "2001::1", "64:ff9b:1::1"]) {
+      expect(isPrivateAddress(ip), ip).toBe(true);
+    }
+  });
+  it("parses IPv6 to bytes", () => {
+    expect(parseIPv6("::1")).toEqual([...Array(15).fill(0), 1]);
+    expect(parseIPv6("::ffff:1.2.3.4")?.slice(10)).toEqual([0xff, 0xff, 1, 2, 3, 4]);
+    expect(parseIPv6("1.2.3.4")).toBeNull();
+    expect(parseIPv6("nope")).toBeNull();
   });
 });

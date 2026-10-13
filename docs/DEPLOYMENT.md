@@ -43,6 +43,7 @@ than the installed app (ARCHITECTURE §3).
 | `ENABLE_GROUP_DELETION` | `true` | |
 | `ALLOW_JOIN_FROM_TAG_DEFAULT` | `true` | Default `joinFromTag` for new groups |
 | `ANALYTICS_PROVIDER` | | See [Analytics](#analytics) |
+| `WEBHOOK_ALLOW_PRIVATE_NETWORKS` | `true`; **`false` on Vercel** | Outbound webhooks to LAN/loopback addresses. Set `false` on any instance strangers can use ([API.md](API.md#allowed-urls-ssrf)) |
 | `RATE_LIMIT_ENABLED` | `true` | |
 | `RATE_LIMIT_PROXY_HOPS` | `1` | Proxies that append to `X-Forwarded-For` |
 | `SKIP_MIGRATIONS` | `false` | Docker only: skip `prisma migrate deploy` on start |

@@ -78,7 +78,12 @@ export function WebhooksSection() {
     trpc.integrations.webhooks.test.mutationOptions({
       onSuccess: (res) =>
         res.ok
-          ? toast.success(t("webhooks.testOk", { status: res.status ?? 0, ms: res.durationMs }))
+          ? toast.success(
+              // Public instances only report success/failure (no status), see testWebhook().
+              res.status === null
+                ? t("webhooks.testOkPlain")
+                : t("webhooks.testOk", { status: res.status, ms: res.durationMs }),
+            )
           : toast.error(t("webhooks.testFailed", { error: res.error ?? "?" })),
       onError,
     }),

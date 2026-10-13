@@ -12,6 +12,8 @@
  * resets on any success. At AUTO_DISABLE_AFTER_FAILURES the webhook is
  * disabled (disabledAt) and its pending deliveries are failed.
  */
+import http from "node:http";
+import https from "node:https";
 import { z } from "zod";
 import type { Prisma, Webhook } from "@/generated/prisma/client";
 import { logActivity, type Actor } from "@/lib/activity";
@@ -28,7 +30,14 @@ import {
 } from "@/lib/integrations/backoff";
 import { deliveryHeaders } from "@/lib/integrations/signing";
 import { integrationNameSchema } from "@/lib/integrations/tokens";
-import { assertDeliverable, validateWebhookUrl } from "@/lib/integrations/url-safety";
+import {
+  assertHostAllowed,
+  DESTINATION_NOT_ALLOWED,
+  DestinationNotAllowedError,
+  guardedLookup,
+  validateWebhookUrl,
+  type Resolver,
+} from "@/lib/integrations/url-safety";
 
 // ---------------------------------------------------------------------------
 // Management
@@ -191,39 +200,80 @@ export interface SendResult {
   durationMs: number;
 }
 
+/** Test seams for sendSigned(). */
+export interface SendOptions {
+  /** Defaults to env().WEBHOOK_ALLOW_PRIVATE_NETWORKS. */
+  allowPrivate?: boolean;
+  /** DNS resolver for the guarded lookup (tests). */
+  resolver?: Resolver;
+  timeoutMs?: number;
+}
+
+/**
+ * POST once with node:http(s). The connection's DNS lookup is
+ * guardedLookup(), so with private networks disallowed the address that was
+ * checked is the one connected to. No redirects, no connection reuse.
+ */
+function postOnce(url: URL, headers: Record<string, string>, body: string, opts: Required<Pick<SendOptions, "allowPrivate" | "timeoutMs">> & SendOptions) {
+  return new Promise<number>((resolve, reject) => {
+    const mod = url.protocol === "https:" ? https : http;
+    const req = mod.request(
+      url,
+      {
+        method: "POST",
+        headers: { ...headers, "Content-Length": String(Buffer.byteLength(body)) },
+        lookup: guardedLookup(opts.allowPrivate, opts.resolver) as unknown as http.RequestOptions["lookup"],
+        agent: false,
+      },
+      (res) => {
+        clearTimeout(timer);
+        resolve(res.statusCode ?? 0);
+        // We don't read the body.
+        res.destroy();
+      },
+    );
+    const timer = setTimeout(() => {
+      const err = new Error(`Timed out after ${opts.timeoutMs / 1000}s`);
+      err.name = "TimeoutError";
+      req.destroy(err);
+    }, opts.timeoutMs);
+    req.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    req.end(body);
+  });
+}
+
 /** Sign and POST a body to a URL once. Never throws. Redirects are not followed. */
-export async function sendSigned(input: {
-  url: string;
-  secret: string;
-  event: string;
-  deliveryId: string;
-  rawBody: string;
-  now?: Date;
-}): Promise<SendResult> {
+export async function sendSigned(
+  input: {
+    url: string;
+    secret: string;
+    event: string;
+    deliveryId: string;
+    rawBody: string;
+    now?: Date;
+  },
+  opts: SendOptions = {},
+): Promise<SendResult> {
   const started = Date.now();
+  const allowPrivate = opts.allowPrivate ?? env().WEBHOOK_ALLOW_PRIVATE_NETWORKS;
+  const timeoutMs = opts.timeoutMs ?? DELIVERY_TIMEOUT_MS;
   try {
     const check = validateWebhookUrl(input.url);
     if (!check.ok) throw new Error(check.reason);
-    await assertDeliverable(check.url, env().WEBHOOK_ALLOW_PRIVATE_NETWORKS);
-    const res = await fetch(check.url, {
-      method: "POST",
-      headers: deliveryHeaders(input),
-      body: input.rawBody,
-      redirect: "manual",
-      signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
-      cache: "no-store",
-    });
-    // Drain a little of the body so the connection can be reused; ignore content.
-    await res.body?.cancel().catch(() => {});
-    const ok = res.status >= 200 && res.status < 300;
-    return { ok, status: res.status, error: ok ? null : `HTTP ${res.status}`, durationMs: Date.now() - started };
+    assertHostAllowed(check.url, allowPrivate);
+    const status = await postOnce(check.url, deliveryHeaders(input), input.rawBody, { ...opts, allowPrivate, timeoutMs });
+    const ok = status >= 200 && status < 300;
+    return { ok, status, error: ok ? null : `HTTP ${status}`, durationMs: Date.now() - started };
   } catch (err) {
     const msg =
-      err instanceof Error
-        ? err.name === "TimeoutError"
-          ? `Timed out after ${DELIVERY_TIMEOUT_MS / 1000}s`
-          : (err.cause instanceof Error ? `${err.message}: ${err.cause.message}` : err.message)
-        : String(err);
+      err instanceof DestinationNotAllowedError
+        ? DESTINATION_NOT_ALLOWED
+        : err instanceof Error
+          ? err.message
+          : String(err);
     return { ok: false, status: null, error: msg.slice(0, 500), durationMs: Date.now() - started };
   }
 }
@@ -231,8 +281,13 @@ export async function sendSigned(input: {
 /**
  * Send a `ping` event to a webhook right now (the "Send test" button). Not
  * queued and doesn't affect failCount; disabled webhooks can be tested too.
+ *
+ * When private networks are disallowed (public instances) the result is
+ * reduced to ok / not ok with a generic error, so the button can't be used
+ * as a port scanner or to learn what a hostname resolves to. Self-hosted
+ * instances (private networks allowed) get the HTTP status and error.
  */
-export async function testWebhook(groupId: string, webhookId: string) {
+export async function testWebhook(groupId: string, webhookId: string, opts: SendOptions = {}) {
   const w = await prisma.webhook.findFirst({ where: { id: webhookId, groupId }, include: { group: true } });
   if (!w) throw notFound("WEBHOOK_NOT_FOUND");
   const now = new Date();
@@ -244,7 +299,19 @@ export async function testWebhook(groupId: string, webhookId: string) {
     group: { name: w.group.name, timezone: w.group.timezone },
     data: { message: "Test delivery from Yakka", webhook: { id: w.id, name: w.name } },
   };
-  return sendSigned({ url: w.url, secret: w.secret, event: "ping", deliveryId, rawBody: JSON.stringify(envelope), now });
+  const allowPrivate = opts.allowPrivate ?? env().WEBHOOK_ALLOW_PRIVATE_NETWORKS;
+  const res = await sendSigned(
+    { url: w.url, secret: w.secret, event: "ping", deliveryId, rawBody: JSON.stringify(envelope), now },
+    { ...opts, allowPrivate },
+  );
+  return allowPrivate ? res : redactTestResult(res);
+}
+
+/** The test result as shown on a public instance: success/failure only. */
+export function redactTestResult(res: SendResult): SendResult {
+  return res.ok
+    ? { ok: true, status: null, error: null, durationMs: 0 }
+    : { ok: false, status: null, error: res.error === DESTINATION_NOT_ALLOWED ? DESTINATION_NOT_ALLOWED : "Delivery failed", durationMs: 0 };
 }
 
 async function failPending(tx: Prisma.TransactionClient, webhookId: string, now: Date, reason: string) {
@@ -268,9 +335,18 @@ export interface DeliveryRunResult {
  * (used for the immediate kick after an event); the cron runs it unscoped.
  */
 export async function processDueDeliveries(
-  opts: { now?: Date; limit?: number; groupId?: string; concurrency?: number } = {},
+  opts: {
+    now?: Date;
+    limit?: number;
+    groupId?: string;
+    concurrency?: number;
+    /** Clock read at each claim (tests). Defaults to the real time, NOT `now`. */
+    clock?: () => Date;
+    send?: SendOptions;
+  } = {},
 ): Promise<DeliveryRunResult> {
   const now = opts.now ?? new Date();
+  const clock = opts.clock ?? (() => new Date());
   const result: DeliveryRunResult = { attempted: 0, delivered: 0, failed: 0, retrying: 0, disabledWebhooks: 0 };
   const due = await prisma.webhookDelivery.findMany({
     where: {
@@ -287,15 +363,24 @@ export async function processDueDeliveries(
   const queue = [...due];
   const workers = Array.from({ length: Math.min(opts.concurrency ?? 4, queue.length) }, async () => {
     for (let row = queue.shift(); row; row = queue.shift()) {
-      await deliverOne(row, now, result);
+      await deliverOne(row, clock, result, opts.send);
     }
   });
   await Promise.all(workers);
   return result;
 }
 
-async function deliverOne(row: { id: string; nextAttemptAt: Date }, now: Date, result: DeliveryRunResult) {
-  // Claim: only one worker wins the conditional update.
+async function deliverOne(
+  row: { id: string; nextAttemptAt: Date },
+  clock: () => Date,
+  result: DeliveryRunResult,
+  send?: SendOptions,
+) {
+  // Claim: only one worker wins the conditional update. The lease starts at
+  // claim time, not at the start of the sweep: a row claimed late in a long
+  // run would otherwise get a lease that has already expired, and another
+  // worker could pick it up and send it again.
+  const now = clock();
   const claim = await prisma.webhookDelivery.updateMany({
     where: { id: row.id, nextAttemptAt: row.nextAttemptAt, deliveredAt: null, failedAt: null },
     data: { nextAttemptAt: new Date(now.getTime() + CLAIM_LEASE_MS) },
@@ -319,8 +404,8 @@ async function deliverOne(row: { id: string; nextAttemptAt: Date }, now: Date, r
     event: d.event,
     deliveryId: d.id,
     rawBody: JSON.stringify(envelope),
-  });
-  const finishedAt = new Date();
+  }, send);
+  const finishedAt = clock();
   const attempts = d.attempts + 1;
 
   if (res.ok) {

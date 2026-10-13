@@ -192,7 +192,9 @@ Yakka POSTs a JSON event to your URL when one of these happens:
 
 Each webhook subscribes to a subset of these events. The Integrations page also
 has a **Send test** button, which sends a `ping` event straight away and
-reports the HTTP status it got back.
+reports the HTTP status it got back. On an instance with
+`WEBHOOK_ALLOW_PRIVATE_NETWORKS=false` it only reports "delivered" or
+"failed", so it can't be used to probe hosts and ports.
 
 ### Request
 
@@ -323,12 +325,28 @@ def yakka():
 ### Allowed URLs (SSRF)
 
 Webhook URLs must be `http://` or `https://`, with no username or password in
-them. Private and LAN addresses are **allowed by default**, so a self-hosted
-instance can call Home Assistant at `http://192.168.1.20:8123`. If you run a
-public instance where untrusted people can create groups, set
-`WEBHOOK_ALLOW_PRIVATE_NETWORKS=false`. Every delivery then resolves the host
-first, and refuses loopback, RFC 1918, link-local (including cloud metadata
-addresses), CGNAT, ULA and multicast addresses.
+them. Whether they may point at private and LAN addresses depends on
+`WEBHOOK_ALLOW_PRIVATE_NETWORKS`:
+
+- **Self-hosted (Docker, `next start`): allowed by default**, so a homelab
+  instance can call Home Assistant at `http://192.168.1.20:8123`. This means
+  anyone who can open a group on your instance can make it send POST
+  requests into your network. That's fine for a household; if you expose a
+  self-hosted instance to people you don't trust, set
+  `WEBHOOK_ALLOW_PRIVATE_NETWORKS=false`.
+- **Vercel: refused by default** (`VERCEL` is set). Setting the variable
+  explicitly overrides the default either way.
+
+When private addresses are refused, every address the host resolves to is
+checked inside the connection's own DNS lookup, and the request goes to the
+address that was checked, so DNS rebinding between "check" and "connect"
+doesn't work. Refused: loopback, RFC 1918, link-local (including cloud
+metadata addresses), CGNAT, documentation and benchmarking ranges,
+multicast and reserved space, IPv6 unique-local, link-local, site-local and
+multicast, and IPv4 addresses wrapped in IPv6 (IPv4-mapped such as
+`[::ffff:7f00:1]`, NAT64 `64:ff9b::/96`, 6to4 `2002::/16`; Teredo
+`2001::/32` is refused outright). `localhost` names are refused too.
+Redirects are never followed.
 
 ## Cron
 

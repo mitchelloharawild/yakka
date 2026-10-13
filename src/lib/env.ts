@@ -1,15 +1,22 @@
 import { z } from "zod";
 
 /** Parses "true"/"1"/"yes" (case-insensitive) as true; anything else set is false. */
-const bool = (defaultValue: boolean) =>
+const bool = (defaultValue: boolean | (() => boolean)) =>
   z
     .string()
     .optional()
     .transform((v) =>
       v === undefined || v.trim() === ""
-        ? defaultValue
+        ? typeof defaultValue === "function"
+          ? defaultValue()
+          : defaultValue
         : ["true", "1", "yes", "on"].includes(v.trim().toLowerCase()),
     );
+
+/** Running on Vercel (it sets VERCEL=1): a public, multi-tenant style deployment. */
+export function isVercel(): boolean {
+  return Boolean(process.env.VERCEL?.trim());
+}
 
 /** Empty strings in .env files count as "not set". */
 const optionalString = z
@@ -34,8 +41,12 @@ const serverEnvSchema = z.object({
   ALLOW_JOIN_FROM_TAG_DEFAULT: bool(true),
   /** e.g. "plausible" or "umami"; undefined disables analytics. */
   ANALYTICS_PROVIDER: optionalString,
-  /** Outbound webhooks may target private/LAN addresses (e.g. Home Assistant). Turn off on public instances. */
-  WEBHOOK_ALLOW_PRIVATE_NETWORKS: bool(true),
+  /**
+   * Outbound webhooks may target private/LAN addresses (e.g. Home Assistant).
+   * Default: true when self-hosted, false on Vercel. Set false on any public
+   * instance where untrusted people can create groups.
+   */
+  WEBHOOK_ALLOW_PRIVATE_NETWORKS: bool(() => !isVercel()),
   /** Optional ntfy topic URL (e.g. https://ntfy.sh/my-topic) that also receives due/overdue notices. */
   NTFY_URL: optionalString,
   /** Optional ntfy access token (sent as `Authorization: Bearer`). */

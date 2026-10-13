@@ -227,7 +227,10 @@ emits `chore.due` and `chore.overdue`.
 
 - `webhooks.ts` is the delivery worker. `processDueDeliveries({ groupId?, now? })`
   claims each row with a conditional update, so concurrent workers never
-  double-send. It retries on the schedule in `backoff.ts` and auto-disables a
+  double-send. The claim lease (2 min) starts when the row is claimed, not
+  when the sweep started. Requests go through `node:http(s)` with
+  `guardedLookup()` from `url-safety.ts` as the socket's DNS lookup, so the
+  SSRF check applies to the address actually connected to. It retries on the schedule in `backoff.ts` and auto-disables a
   webhook after 15 consecutive failed attempts. `listeners.ts` registers an
   `onEvent("*")` listener that delivers straight away via `after()`. The
   integrations tRPC router and the REST routes import it, so it's active in

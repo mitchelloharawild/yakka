@@ -80,6 +80,7 @@
     "rotateConfirm": "Replace the signing secret? Receivers must be updated.",
     "test": "Send test",
     "testOk": "Test delivered (HTTP {status}, {ms} ms)",
+    "testOkPlain": "Test delivered",
     "testFailed": "Test failed: {error}",
     "enabled": "Enabled",
     "disabled": "Disabled",
