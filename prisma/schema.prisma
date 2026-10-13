@@ -1,5 +1,11 @@
 // Yakka data model. See docs/ARCHITECTURE.md for the design.
 //
+// Portability: this schema must work on both PostgreSQL and SQLite (the
+// SQLite variant is produced by swapping the datasource provider). So: no
+// scalar lists, no native types (@db.*), no Postgres-only features. Lists are
+// stored as comma-separated strings (see Webhook.events) and free-form data
+// as Json.
+//
 // There are no user accounts: a Group's id is the secret that grants access
 // (as in Spliit), and a Tag's token is a narrower secret that can only
 // complete its own chore.
@@ -14,16 +20,21 @@ datasource db {
 }
 
 model Group {
-  id          String    @id // nanoid; knowing it grants full access
-  name        String
-  timezone    String    @default("UTC")
+  id              String    @id // nanoid; knowing it grants full access
+  name            String
+  timezone        String    @default("UTC")
   // Whether an unknown device may pick an identity from a tag scan, or must
   // open the full group link first.
-  joinFromTag Boolean   @default(true)
-  undoSeconds Int       @default(10)
-  settingsPin String? // optional hashed PIN protecting group settings
-  createdAt   DateTime  @default(now())
-  deletedAt   DateTime? // soft delete; purged by cron
+  joinFromTag     Boolean   @default(true)
+  // How long the "Undo" button is offered after a tag completion.
+  undoSeconds     Int       @default(10)
+  // A repeat completion of the same chore within this many minutes returns
+  // the existing completion instead (absorbs NFC double-reads).
+  debounceMinutes Int       @default(5)
+  settingsPin     String? // optional scrypt-hashed PIN protecting group settings (see src/lib/ids.ts)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime? // soft delete; purged by cron
 
   members      Member[]
   chores       Chore[]
@@ -38,14 +49,16 @@ model Member {
   id         String    @id @default(cuid())
   groupId    String
   name       String
-  colour     String?
+  colour     String? // CSS colour, e.g. "#e11d48"
   createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
   archivedAt DateTime?
 
-  group       Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  completions Completion[]
-  assigned    Chore[]      @relation("ChoreAssignee")
-  pushSubs    PushSub[]
+  group        Group         @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  completions  Completion[]
+  assigned     Chore[]       @relation("ChoreAssignee")
+  pushSubs     PushSub[]
+  inboundHooks InboundHook[]
 
   @@index([groupId])
 }
@@ -65,15 +78,27 @@ model Chore {
   id           String         @id @default(cuid())
   groupId      String
   title        String
-  icon         String?
-  // iCalendar RRULE; null means a one-off or unscheduled chore. The next due
-  // date is computed on read from this plus the latest non-undone completion.
+  description  String?
+  icon         String? // emoji or lucide icon name
+  // iCalendar RRULE body without DTSTART, e.g. "FREQ=WEEKLY;BYDAY=MO".
+  // Evaluated in the group's timezone (wall-clock), so DST does not shift it.
+  // null means a one-off chore (if startsAt is set) or an unscheduled one.
+  // The next due date is computed on read (src/lib/schedule.ts) from this
+  // plus the latest non-undone completion; it is never stored.
   rrule        String?
+  // DTSTART for recurring chores (its wall-clock time in the group timezone
+  // is the time of day each occurrence is due); the due date of a one-off
+  // chore. null with an rrule means "start of the day the chore was created".
+  startsAt     DateTime?
   anchor       ScheduleAnchor @default(COMPLETION)
   assigneeMode AssigneeMode   @default(ANYONE)
+  // FIXED: the assignee. ROUND_ROBIN: who starts the rotation (optional).
   assigneeId   String?
+  // Minutes after the due time before the chore counts as overdue.
   graceMinutes Int            @default(0)
+  sortOrder    Int            @default(0)
   createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
   archivedAt   DateTime?
 
   group        Group         @relation(fields: [groupId], references: [id], onDelete: Cascade)
@@ -81,6 +106,7 @@ model Chore {
   tags         Tag[]
   completions  Completion[]
   inboundHooks InboundHook[]
+  notices      ChoreNotice[]
 
   @@index([groupId])
 }
@@ -92,19 +118,21 @@ enum TagKind {
 }
 
 model Tag {
-  id        String    @id @default(cuid())
-  token     String    @unique // short secret encoded in /t/{token}
-  groupId   String
-  choreId   String
-  kind      TagKind   @default(QR)
-  label     String?
-  createdAt DateTime  @default(now())
-  revokedAt DateTime?
+  id         String    @id @default(cuid())
+  token      String    @unique // short secret encoded in /t/{token}
+  groupId    String
+  choreId    String
+  kind       TagKind   @default(QR)
+  label      String?
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
 
   group       Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
   chore       Chore        @relation(fields: [choreId], references: [id], onDelete: Cascade)
   completions Completion[]
 
+  @@index([groupId])
   @@index([choreId])
 }
 
@@ -122,7 +150,11 @@ model Completion {
   source      CompletionSource
   tagId       String?
   deviceId    String? // from the browser's localStorage, for the audit log
+  note        String?
+  // When the chore was done. May be earlier than createdAt for offline
+  // replays or API calls that pass a timestamp.
   completedAt DateTime         @default(now())
+  createdAt   DateTime         @default(now()) // when the server recorded it (undo window counts from here)
   undoneAt    DateTime?
 
   chore  Chore   @relation(fields: [choreId], references: [id], onDelete: Cascade)
@@ -130,18 +162,22 @@ model Completion {
   tag    Tag?    @relation(fields: [tagId], references: [id], onDelete: SetNull)
 
   @@index([choreId, completedAt])
+  @@index([memberId])
 }
 
 model ApiToken {
   id         String    @id @default(cuid())
   groupId    String
   name       String
-  hash       String    @unique // only the hash of the bearer token is stored
+  hash       String    @unique // only the SHA-256 hash of the bearer token is stored
+  prefix     String // first characters of the token, shown in the UI to tell tokens apart
   createdAt  DateTime  @default(now())
   lastUsedAt DateTime?
   revokedAt  DateTime?
 
   group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
 }
 
 // POST /api/hooks/{secret} completes one chore, e.g. from Home Assistant.
@@ -149,27 +185,82 @@ model InboundHook {
   id              String    @id @default(cuid())
   groupId         String
   choreId         String
-  secret          String    @unique
-  defaultMemberId String?
+  name            String?
+  secret          String    @unique // stored in clear so the URL can be shown again
+  defaultMemberId String? // null: recorded as "Automation"
   createdAt       DateTime  @default(now())
+  lastUsedAt      DateTime?
   revokedAt       DateTime?
 
-  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  chore Chore @relation(fields: [choreId], references: [id], onDelete: Cascade)
+  group         Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  chore         Chore   @relation(fields: [choreId], references: [id], onDelete: Cascade)
+  defaultMember Member? @relation(fields: [defaultMemberId], references: [id], onDelete: SetNull)
+
+  @@index([groupId])
 }
 
 // Outbound, HMAC-signed webhook subscriptions.
 model Webhook {
-  id         String    @id @default(cuid())
-  groupId    String
-  url        String
-  secret     String
-  events     String[] // chore.completed, chore.due, chore.overdue
-  failCount  Int       @default(0)
-  createdAt  DateTime  @default(now())
-  disabledAt DateTime?
+  id              String    @id @default(cuid())
+  groupId         String
+  name            String?
+  url             String
+  secret          String // HMAC key for X-Signature
+  // Comma-separated event types (portable across Postgres/SQLite), e.g.
+  // "chore.completed,chore.due". Use parseWebhookEvents/serializeWebhookEvents
+  // from src/lib/events.ts; never split by hand.
+  events          String
+  failCount       Int       @default(0) // consecutive failures; reset on success
+  lastDeliveredAt DateTime?
+  lastError       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  disabledAt      DateTime? // set after repeated failures, or by the user
 
-  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  group      Group             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([groupId])
+}
+
+// Outbound webhook delivery queue. Rows are inserted by emitEvent()
+// (src/lib/events.ts) and processed with retry/backoff by the delivery worker.
+model WebhookDelivery {
+  id             String    @id @default(cuid())
+  webhookId      String
+  event          String // event type, e.g. chore.completed
+  payload        Json // the full JSON body to POST (an EventEnvelope)
+  attempts       Int       @default(0)
+  nextAttemptAt  DateTime  @default(now())
+  deliveredAt    DateTime?
+  failedAt       DateTime? // gave up (max attempts reached, or webhook disabled)
+  responseStatus Int?
+  lastError      String?
+  createdAt      DateTime  @default(now())
+
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([deliveredAt, failedAt, nextAttemptAt])
+  @@index([webhookId, createdAt])
+}
+
+enum NoticeKind {
+  DUE
+  OVERDUE
+}
+
+// Records that the "due" / "overdue" notification for one occurrence of a
+// chore was sent, so the cron job is idempotent.
+model ChoreNotice {
+  id      String     @id @default(cuid())
+  choreId String
+  kind    NoticeKind
+  dueAt   DateTime // the occurrence's due time (schedule.nextDueAt)
+  sentAt  DateTime   @default(now())
+
+  chore Chore @relation(fields: [choreId], references: [id], onDelete: Cascade)
+
+  @@unique([choreId, kind, dueAt])
 }
 
 // Web Push subscription for one member on one device.
@@ -180,18 +271,24 @@ model PushSub {
   endpoint  String   @unique
   p256dh    String
   auth      String
+  userAgent String?
   createdAt DateTime @default(now())
+  failCount Int      @default(0)
 
   member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId])
+  @@index([deviceId])
 }
 
 // Audit log, like Spliit's Activity tab.
 model Activity {
   id        String   @id @default(cuid())
   groupId   String
-  type      String // e.g. completion.created, chore.updated, member.created
-  memberId  String?
+  type      String // see ActivityType in src/lib/activity.ts
+  memberId  String? // who did it, if known (not a relation: survives deletes)
   deviceId  String?
+  choreId   String? // the chore it concerns, if any (not a relation)
   data      Json?
   createdAt DateTime @default(now())
 
