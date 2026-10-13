@@ -2,6 +2,8 @@
  * POST /api/offline/replay: replays completions queued in IndexedDB while
  * offline. Contract in ./protocol.ts; idempotency notes in ./replay.ts.
  */
+// TODO(merge): add `import "@/lib/integrations/listeners";` (Agent C) so
+// replayed completions trigger immediate webhook delivery. Not on this branch.
 import { MAX_REPLAY_BATCH, type ReplayResponse } from "./protocol";
 import { replayItem } from "./replay";
 
