@@ -204,12 +204,14 @@ export async function undoCompletion(input: UndoCompletionInput) {
     throw new DomainError("FORBIDDEN", "UNDO_WINDOW_EXPIRED");
   }
 
+  // Conditional update: of two concurrent undos only one sees count === 1, so
+  // the activity row and the chore.undone event are written exactly once.
   const completion = await prisma.$transaction(async (tx) => {
-    const updated = await tx.completion.update({
-      where: { id: existing.id },
+    const { count } = await tx.completion.updateMany({
+      where: { id: existing.id, undoneAt: null },
       data: { undoneAt: now },
-      include: { member: { select: { id: true, name: true, colour: true } } },
     });
+    if (count !== 1) return null;
     await logActivity(tx, {
       groupId: group.id,
       type: "completion.undone",
@@ -217,8 +219,19 @@ export async function undoCompletion(input: UndoCompletionInput) {
       choreId: chore.id,
       data: { completionId: existing.id, title: chore.title },
     });
-    return updated;
+    return tx.completion.findUniqueOrThrow({
+      where: { id: existing.id },
+      include: { member: { select: { id: true, name: true, colour: true } } },
+    });
   });
+
+  if (!completion) {
+    const current = await prisma.completion.findUniqueOrThrow({
+      where: { id: existing.id },
+      include: { member: { select: { id: true, name: true, colour: true } } },
+    });
+    return { completion: current, alreadyUndone: true, chore: await getChoreView(chore.id, { now }) };
+  }
 
   const view = await getChoreView(chore.id, { now });
   await emitEvent("chore.undone", {

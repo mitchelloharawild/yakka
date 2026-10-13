@@ -193,7 +193,10 @@ completionTallies(groupId, since?)
 - **Undo.** The tag page uses `enforceWindow: true`, which allows undo for
   `group.undoSeconds` after `createdAt`. The group UI uses
   `enforceWindow: false`, with no time limit: anyone with the group link has
-  full access anyway. Undo is idempotent.
+  full access anyway. Undo is idempotent, also under concurrency: it is a
+  conditional update (`undoneAt: null`), and only the request that wins it
+  logs `completion.undone` and emits `chore.undone` (the loser gets
+  `alreadyUndone: true`).
 - If you pass `tagId`, it must belong to the chore and must not be revoked
   (otherwise you get `TAG_REVOKED`). Using a tag updates `tag.lastUsedAt`.
 - `completedAt` may be backdated by up to 14 days, or set up to 5 minutes in
@@ -432,6 +435,8 @@ one file per namespace in `messages/<locale>/<ns>.json`, merged by
   parsing, local-groups with a stubbed `window`) is covered.
 - Always pass `now` explicitly in schedule tests, because recurring chores
   roll forward to the real current date.
-- Database-backed services aren't covered by unit tests. Smoke-test them
-  with a `tsx` script against the dev database (see `prisma/seed.ts` for the
+- Database-backed services mostly aren't covered by unit tests. Where a
+  race or write pattern matters, mock `@/lib/db` with `vi.mock` (see
+  `src/lib/services/completions.test.ts`). Otherwise smoke-test them with a
+  `tsx` script against the dev database (see `prisma/seed.ts` for the
   imports and dotenv setup).
