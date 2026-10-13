@@ -1,14 +1,21 @@
 /**
  * API tokens, inbound hooks and outbound webhook management. OWNED BY: Agent C.
  *
- * Reads only need the group id. Mutations (and revealing a webhook secret)
- * also require the group's settings PIN when one is set, because these hand
- * out long-lived credentials.
+ * Reads only need the group id and never return secrets (hook URLs are
+ * masked, webhook secrets omitted). Mutations, and revealing a hook URL or a
+ * webhook secret, also require the group's settings PIN when one is set,
+ * because these hand out long-lived credentials.
  */
 import { z } from "zod";
 import { env, isPushConfigured } from "@/lib/env";
 import { WEBHOOK_EVENTS } from "@/lib/events";
-import { hookUrl, createInboundHook, listInboundHooks, revokeInboundHook } from "@/lib/integrations/hooks";
+import {
+  createInboundHook,
+  hookUrl,
+  listInboundHooks,
+  revealInboundHook,
+  revokeInboundHook,
+} from "@/lib/integrations/hooks";
 import "@/lib/integrations/listeners";
 import { createApiToken, integrationNameSchema, listApiTokens, revokeApiToken } from "@/lib/integrations/tokens";
 import {
@@ -23,18 +30,12 @@ import {
   webhookInput,
   webhookPatch,
 } from "@/lib/integrations/webhooks";
-import { assertSettingsPin } from "@/lib/services/groups";
-import { createTRPCRouter, groupProcedure } from "@/trpc/init";
+import { createTRPCRouter, groupPinProcedure, groupProcedure } from "@/trpc/init";
 
 const id = z.string().min(1).max(64);
 
 /** Group procedure that checks the settings PIN (input `pin`) before running. */
-const pinProcedure = groupProcedure
-  .input(z.object({ pin: z.string().max(16).nullish() }))
-  .use(async ({ ctx, input, next }) => {
-    await assertSettingsPin(ctx.group, input.pin, { client: ctx.clientIp });
-    return next();
-  });
+const pinProcedure = groupPinProcedure;
 
 const tokensRouter = createTRPCRouter({
   list: groupProcedure.query(({ ctx }) => listApiTokens(ctx.group.id)),
@@ -48,7 +49,12 @@ const tokensRouter = createTRPCRouter({
 });
 
 const hooksRouter = createTRPCRouter({
+  /** Hooks with `maskedUrl` only; use `reveal` for the full URL. */
   list: groupProcedure.query(({ ctx }) => listInboundHooks(ctx.group.id)),
+  /** Returns the full hook `url`. */
+  reveal: pinProcedure
+    .input(z.object({ hookId: id }))
+    .mutation(({ ctx, input }) => revealInboundHook(ctx.group.id, input.hookId)),
   create: pinProcedure
     .input(z.object({ choreId: id, name: integrationNameSchema.nullish(), defaultMemberId: id.nullish() }))
     .mutation(({ ctx, input }) =>

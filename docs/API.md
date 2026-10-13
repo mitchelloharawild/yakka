@@ -155,7 +155,9 @@ POST https://yakka.example/api/hooks/{secret}
 
 Create hooks on the Integrations page. Pick the chore and, optionally, a
 default member to record completions as. Without a default member, completions
-are recorded as "Automation". You can view the URL again at any time.
+are recorded as "Automation". The list shows a masked URL; **Show URL**
+reveals the full one again at any time (with the settings PIN, if the group
+has one).
 Completions from hooks have source `WEBHOOK` and are debounced in the same way
 as API completions.
 

@@ -21,8 +21,9 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useFormatter, useNow, useTranslations } from "next-intl";
-import { useMemo, useState } from "react";
+import { createContext, useContext, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useErrorMessage } from "@/components/group/group-context";
 import { NfcWriteDialog } from "@/components/tag/nfc-write-dialog";
 import {
   AlertDialog,
@@ -67,12 +68,26 @@ function errorText(err: unknown, fallback: string): string {
   return err instanceof TRPCClientError ? err.message : fallback;
 }
 
+/** The settings PIN typed on this page ("" when none), sent with create/rotate/revoke. */
+const PinContext = createContext("");
+
+/** Toast for tag mutations: translated PIN errors, otherwise the server message. */
+function useTagErrorToast() {
+  const errorMessage = useErrorMessage();
+  return (e: unknown) => {
+    const reason = (e as { data?: { reason?: string | null } }).data?.reason;
+    toast.error(reason?.startsWith("PIN_") ? errorMessage(e) : errorText(e, "Error"));
+  };
+}
+
 export function TagManager({ groupId }: { groupId: string }) {
   const t = useTranslations("tag.manage");
   const trpc = useTRPC();
   const { data: tags } = useSuspenseQuery(trpc.tags.list.queryOptions({ groupId }));
   const { data: chores } = useSuspenseQuery(trpc.groups.chores.list.queryOptions({ groupId }));
+  const group = useQuery(trpc.groups.get.queryOptions({ groupId }));
   const [creating, setCreating] = useState(false);
+  const [pin, setPin] = useState("");
 
   const active = tags.filter((tag) => !tag.revokedAt);
   const revoked = tags.filter((tag) => tag.revokedAt);
@@ -87,86 +102,106 @@ export function TagManager({ groupId }: { groupId: string }) {
   }, [active]);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-3">
-        <Button asChild variant="ghost" size="sm" className="self-start">
-          <Link href={`/groups/${groupId}`}>
-            <ArrowLeft aria-hidden />
-            {t("back")}
-          </Link>
-        </Button>
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="font-heading text-3xl font-semibold tracking-tight">{t("title")}</h1>
-            <p className="mt-1 max-w-prose text-sm text-muted-foreground">{t("subtitle")}</p>
-          </div>
-          <div className="flex gap-2">
-            {active.length > 0 && (
-              <Button asChild variant="outline">
-                <Link href={`/groups/${groupId}/tags/print`}>
-                  <Printer aria-hidden />
-                  {t("print")}
-                </Link>
+    <PinContext.Provider value={pin}>
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-3">
+          <Button asChild variant="ghost" size="sm" className="self-start">
+            <Link href={`/groups/${groupId}`}>
+              <ArrowLeft aria-hidden />
+              {t("back")}
+            </Link>
+          </Button>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 className="font-heading text-3xl font-semibold tracking-tight">{t("title")}</h1>
+              <p className="mt-1 max-w-prose text-sm text-muted-foreground">{t("subtitle")}</p>
+            </div>
+            <div className="flex gap-2">
+              {active.length > 0 && (
+                <Button asChild variant="outline">
+                  <Link href={`/groups/${groupId}/tags/print`}>
+                    <Printer aria-hidden />
+                    {t("print")}
+                  </Link>
+                </Button>
+              )}
+              <Button onClick={() => setCreating(true)} disabled={chores.length === 0}>
+                <Plus aria-hidden />
+                {t("create")}
               </Button>
-            )}
-            <Button onClick={() => setCreating(true)} disabled={chores.length === 0}>
-              <Plus aria-hidden />
-              {t("create")}
-            </Button>
+            </div>
           </div>
         </div>
-      </div>
 
-      {chores.length === 0 && active.length === 0 ? (
-        <p className="rounded-xl border border-dashed p-6 text-center text-muted-foreground">{t("noChores")}</p>
-      ) : active.length === 0 ? (
-        <p className="rounded-xl border border-dashed p-6 text-center text-muted-foreground">{t("empty")}</p>
-      ) : (
-        <ul className="flex flex-col gap-5">
-          {byChore.map(({ chore, tags }) => (
-            <li key={chore.id} className="flex flex-col gap-2">
-              <h2 className="flex items-center gap-2 font-medium">
-                <span aria-hidden className="text-xl">
-                  {chore.icon || "✅"}
-                </span>
-                {chore.title}
-                {chore.archivedAt && <Badge variant="secondary">{t("archivedChore")}</Badge>}
-              </h2>
-              <ul className="flex flex-col gap-2">
-                {tags.map((tag) => (
+        {group.data?.hasSettingsPin && (
+          <div className="flex flex-col gap-1.5 rounded-lg border bg-muted/40 p-3">
+            <Label htmlFor="tags-pin">{t("pinLabel")}</Label>
+            <p className="text-xs text-muted-foreground">{t("pinHelp")}</p>
+            <Input
+              id="tags-pin"
+              className="max-w-40"
+              type="password"
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder={t("pinPlaceholder")}
+              value={pin}
+              maxLength={8}
+              onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+            />
+          </div>
+        )}
+
+        {chores.length === 0 && active.length === 0 ? (
+          <p className="rounded-xl border border-dashed p-6 text-center text-muted-foreground">{t("noChores")}</p>
+        ) : active.length === 0 ? (
+          <p className="rounded-xl border border-dashed p-6 text-center text-muted-foreground">{t("empty")}</p>
+        ) : (
+          <ul className="flex flex-col gap-5">
+            {byChore.map(({ chore, tags }) => (
+              <li key={chore.id} className="flex flex-col gap-2">
+                <h2 className="flex items-center gap-2 font-medium">
+                  <span aria-hidden className="text-xl">
+                    {chore.icon || "✅"}
+                  </span>
+                  {chore.title}
+                  {chore.archivedAt && <Badge variant="secondary">{t("archivedChore")}</Badge>}
+                </h2>
+                <ul className="flex flex-col gap-2">
+                  {tags.map((tag) => (
+                    <TagRow key={tag.id} groupId={groupId} tag={tag} />
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {revoked.length > 0 && (
+          <Collapsible>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="group self-start text-muted-foreground">
+                <ChevronDown className="transition-transform group-data-[state=open]:rotate-180" aria-hidden />
+                {t("revokedSection", { count: revoked.length })}
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <ul className="mt-2 flex flex-col gap-2 opacity-70">
+                {revoked.map((tag) => (
                   <TagRow key={tag.id} groupId={groupId} tag={tag} />
                 ))}
               </ul>
-            </li>
-          ))}
-        </ul>
-      )}
+            </CollapsibleContent>
+          </Collapsible>
+        )}
 
-      {revoked.length > 0 && (
-        <Collapsible>
-          <CollapsibleTrigger asChild>
-            <Button variant="ghost" size="sm" className="group self-start text-muted-foreground">
-              <ChevronDown className="transition-transform group-data-[state=open]:rotate-180" aria-hidden />
-              {t("revokedSection", { count: revoked.length })}
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <ul className="mt-2 flex flex-col gap-2 opacity-70">
-              {revoked.map((tag) => (
-                <TagRow key={tag.id} groupId={groupId} tag={tag} />
-              ))}
-            </ul>
-          </CollapsibleContent>
-        </Collapsible>
-      )}
-
-      <CreateTagDialog
-        groupId={groupId}
-        open={creating}
-        onOpenChange={setCreating}
-        chores={chores.filter((c) => !c.archivedAt).map((c) => ({ id: c.id, title: c.title, icon: c.icon }))}
-      />
-    </div>
+        <CreateTagDialog
+          groupId={groupId}
+          open={creating}
+          onOpenChange={setCreating}
+          chores={chores.filter((c) => !c.archivedAt).map((c) => ({ id: c.id, title: c.title, icon: c.icon }))}
+        />
+      </div>
+    </PinContext.Provider>
   );
 }
 
@@ -186,6 +221,8 @@ function TagRow({ groupId, tag }: { groupId: string; tag: TagListItem }) {
   const [nfcOpen, setNfcOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [confirm, setConfirm] = useState<"rotate" | "revoke" | null>(null);
+  const pin = useContext(PinContext);
+  const onError = useTagErrorToast();
 
   const revoke = useMutation(
     trpc.tags.revoke.mutationOptions({
@@ -193,7 +230,7 @@ function TagRow({ groupId, tag }: { groupId: string; tag: TagListItem }) {
         toast.success(t("revokedToast"));
         void invalidate();
       },
-      onError: (e) => toast.error(errorText(e, "Error")),
+      onError,
     }),
   );
   const rotate = useMutation(
@@ -202,7 +239,7 @@ function TagRow({ groupId, tag }: { groupId: string; tag: TagListItem }) {
         toast.success(t("rotated"));
         void invalidate();
       },
-      onError: (e) => toast.error(errorText(e, "Error")),
+      onError,
     }),
   );
 
@@ -227,9 +264,7 @@ function TagRow({ groupId, tag }: { groupId: string; tag: TagListItem }) {
           </div>
           <p className="truncate font-mono text-xs text-muted-foreground">{tag.url}</p>
           <p className="text-xs text-muted-foreground">
-            {tag.lastUsedAt
-              ? t("lastUsed", { when: format.relativeTime(tag.lastUsedAt, now) })
-              : t("neverUsed")}
+            {tag.lastUsedAt ? t("lastUsed", { when: format.relativeTime(tag.lastUsedAt, now) }) : t("neverUsed")}
           </p>
         </div>
         {!isRevoked && (
@@ -282,16 +317,14 @@ function TagRow({ groupId, tag }: { groupId: string; tag: TagListItem }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{confirm === "rotate" ? t("rotateTitle") : t("revokeTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {confirm === "rotate" ? t("rotateBody") : t("revokeBody")}
-            </AlertDialogDescription>
+            <AlertDialogDescription>{confirm === "rotate" ? t("rotateBody") : t("revokeBody")}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               variant={confirm === "revoke" ? "destructive" : "default"}
               onClick={() => {
-                const input = { groupId, tagId: tag.id, actor: getActor(groupId) };
+                const input = { groupId, tagId: tag.id, actor: getActor(groupId), pin: pin || null };
                 if (confirm === "rotate") rotate.mutate(input);
                 else revoke.mutate(input);
                 setConfirm(null);
@@ -422,6 +455,8 @@ function CreateTagDialog({
   const [choreId, setChoreId] = useState("");
   const [kind, setKind] = useState<Kind>("QR");
   const [label, setLabel] = useState("");
+  const pin = useContext(PinContext);
+  const onError = useTagErrorToast();
 
   const reset = () => {
     setChoreId("");
@@ -435,7 +470,7 @@ function CreateTagDialog({
         reset();
         onOpenChange(false);
       },
-      onError: (e) => toast.error(errorText(e, "Error")),
+      onError,
     }),
   );
 
@@ -453,7 +488,14 @@ function CreateTagDialog({
           onSubmit={(e) => {
             e.preventDefault();
             if (!choreId) return;
-            create.mutate({ groupId, choreId, kind, label: label.trim() || null, actor: getActor(groupId) });
+            create.mutate({
+              groupId,
+              choreId,
+              kind,
+              label: label.trim() || null,
+              actor: getActor(groupId),
+              pin: pin || null,
+            });
           }}
         >
           <DialogHeader>
@@ -477,12 +519,7 @@ function CreateTagDialog({
           </div>
           <div className="flex flex-col gap-2">
             <Label>{t("kind")}</Label>
-            <ToggleGroup
-              type="single"
-              variant="outline"
-              value={kind}
-              onValueChange={(v) => v && setKind(v as Kind)}
-            >
+            <ToggleGroup type="single" variant="outline" value={kind} onValueChange={(v) => v && setKind(v as Kind)}>
               {(["QR", "NFC", "URL"] as const).map((k) => (
                 <ToggleGroupItem key={k} value={k}>
                   {t(`kinds.${k}`)}

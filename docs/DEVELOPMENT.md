@@ -93,6 +93,15 @@ its own types), `@prisma/adapter-pg`, `@prisma/adapter-better-sqlite3` +
   `src/lib/ids.ts`. Never use cuid for these.
 - Never send `Group.settingsPin` to a client. Wrap groups in
   `toPublicGroup()`, which replaces it with `hasSettingsPin`.
+- **What the settings PIN gates** (when a group has one): group settings,
+  setting/clearing the PIN, deleting the group, everything that hands out or
+  withdraws a credential (API tokens, inbound hooks including revealing a
+  hook URL, webhooks including revealing/rotating the secret and "Send
+  test") and creating, replacing or revoking tags. Use
+  `groupPinProcedure` from `@/trpc/init` (input `pin`). Everyday actions stay
+  ungated on purpose: completing and undoing, adding, editing and archiving
+  members and chores, relabelling tags. Reads never return secrets: hook
+  URLs are listed masked (`maskedUrl`), webhook secrets as a hint.
 - Check PINs only with `assertSettingsPin(group, pin, { client: ctx.clientIp })`.
   It applies the in-memory attempt limiter (`src/lib/pin-limiter.ts`) and
   throws `TOO_MANY_REQUESTS` / `PIN_LOCKED` with `retryAfterSeconds` (exposed

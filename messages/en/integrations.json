@@ -64,7 +64,10 @@
     "postOnly": "Only POST works: opening the URL in a browser does nothing, so link previews can't trigger it.",
     "memberOverride": "Send {json} to record someone else.",
     "recordedAs": "Records as {name}",
-    "archived": "Chore archived"
+    "archived": "Chore archived",
+    "showUrl": "Show URL",
+    "hideUrl": "Hide",
+    "maskedHint": "The URL is the secret. Showing it needs the settings PIN if the group has one."
   },
   "webhooks": {
     "title": "Outbound webhooks",

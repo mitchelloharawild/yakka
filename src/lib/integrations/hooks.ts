@@ -3,7 +3,9 @@
  * OWNED BY: Agent C.
  *
  * The secret is stored in clear (unlike API tokens) so the URL can be shown
- * again in the UI. It only grants "complete this one chore".
+ * again in the UI. It only grants "complete this one chore". Listing shows a
+ * masked URL; the full URL needs the settings PIN (revealInboundHook), like
+ * webhook signing secrets.
  */
 import { logActivity, type Actor } from "@/lib/activity";
 import { prisma } from "@/lib/db";
@@ -19,7 +21,12 @@ export function hookUrl(secret: string): string {
   return `${env().BASE_URL}/api/hooks/${secret}`;
 }
 
-/** Hooks of a group with their URL, newest first (revoked included). */
+/** A hook URL with all but the first 4 characters of the secret masked. */
+export function maskedHookUrl(secret: string): string {
+  return hookUrl(`${secret.slice(0, 4)}${"•".repeat(8)}`);
+}
+
+/** Hooks of a group with a masked URL (no secret), newest first (revoked included). */
 export async function listInboundHooks(groupId: string) {
   const rows = await prisma.inboundHook.findMany({
     where: { groupId },
@@ -29,7 +36,14 @@ export async function listInboundHooks(groupId: string) {
       defaultMember: { select: { id: true, name: true } },
     },
   });
-  return rows.map((r) => ({ ...r, url: hookUrl(r.secret) }));
+  return rows.map(({ secret, ...r }) => ({ ...r, maskedUrl: maskedHookUrl(secret) }));
+}
+
+/** The full URL of a hook (PIN-gated in the router). */
+export async function revealInboundHook(groupId: string, hookId: string) {
+  const hook = await prisma.inboundHook.findFirst({ where: { id: hookId, groupId } });
+  if (!hook) throw notFound("HOOK_NOT_FOUND");
+  return { url: hookUrl(hook.secret) };
 }
 
 /** Create a hook for a chore, optionally recording completions as `defaultMemberId`. */

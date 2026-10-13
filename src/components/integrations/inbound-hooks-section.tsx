@@ -39,12 +39,15 @@ export function InboundHooksSection({
   const [choreId, setChoreId] = useState("");
   const [memberId, setMemberId] = useState(NOBODY);
   const [name, setName] = useState("");
+  // Full URLs the user has revealed (or just created), by hook id. Not persisted.
+  const [revealed, setRevealed] = useState<Record<string, string>>({});
 
   const hooks = useQuery(trpc.integrations.hooks.list.queryOptions({ groupId }));
   const invalidate = () => qc.invalidateQueries({ queryKey: trpc.integrations.hooks.list.queryKey({ groupId }) });
   const create = useMutation(
     trpc.integrations.hooks.create.mutationOptions({
-      onSuccess: () => {
+      onSuccess: (hook) => {
+        setRevealed((r) => ({ ...r, [hook.id]: hook.url }));
         setName("");
         setChoreId("");
         setMemberId(NOBODY);
@@ -54,6 +57,17 @@ export function InboundHooksSection({
     }),
   );
   const revoke = useMutation(trpc.integrations.hooks.revoke.mutationOptions({ onSuccess: invalidate, onError }));
+  const reveal = useMutation(
+    trpc.integrations.hooks.reveal.mutationOptions({
+      onSuccess: (res, vars) => setRevealed((r) => ({ ...r, [vars.hookId]: res.url })),
+      onError,
+    }),
+  );
+  const hide = (hookId: string) =>
+    setRevealed(({ [hookId]: _hidden, ...rest }) => {
+      void _hidden;
+      return rest;
+    });
 
   const active = (hooks.data ?? []).filter((h) => !h.revokedAt);
 
@@ -157,16 +171,45 @@ export function InboundHooksSection({
                     </ConfirmButton>
                   </div>
                 </div>
-                <CodeValue value={h.url} />
-                <details className="text-sm">
-                  <summary className="cursor-pointer text-muted-foreground">{t("common.example")}</summary>
-                  <div className="mt-2 flex flex-col gap-2">
-                    <CodeValue value={`curl -X POST ${h.url}`} />
-                    <p className="text-xs text-muted-foreground">
-                      {t("hooks.memberOverride", { json: '{"member": "Alex"}' })} {t("hooks.postOnly")}
-                    </p>
+                {revealed[h.id] ? (
+                  <>
+                    <div className="flex items-start gap-2">
+                      <div className="min-w-0 flex-1">
+                        <CodeValue value={revealed[h.id]} />
+                      </div>
+                      <Button type="button" size="xs" variant="ghost" onClick={() => hide(h.id)}>
+                        {t("hooks.hideUrl")}
+                      </Button>
+                    </div>
+                    <details className="text-sm">
+                      <summary className="cursor-pointer text-muted-foreground">{t("common.example")}</summary>
+                      <div className="mt-2 flex flex-col gap-2">
+                        <CodeValue value={`curl -X POST ${revealed[h.id]}`} />
+                        <p className="text-xs text-muted-foreground">
+                          {t("hooks.memberOverride", { json: '{"member": "Alex"}' })} {t("hooks.postOnly")}
+                        </p>
+                      </div>
+                    </details>
+                  </>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <code
+                      className="min-w-0 flex-1 truncate rounded-md bg-muted px-2 py-1.5 font-mono text-xs text-muted-foreground"
+                      title={t("hooks.maskedHint")}
+                    >
+                      {h.maskedUrl}
+                    </code>
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="outline"
+                      disabled={reveal.isPending}
+                      onClick={() => reveal.mutate({ ...base(), hookId: h.id })}
+                    >
+                      {t("hooks.showUrl")}
+                    </Button>
                   </div>
-                </details>
+                )}
               </li>
             ))}
           </ul>

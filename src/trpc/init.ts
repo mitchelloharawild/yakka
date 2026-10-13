@@ -15,7 +15,7 @@ import type { Actor } from "@/lib/activity";
 import { prisma } from "@/lib/db";
 import { DomainError } from "@/lib/errors";
 import { requestClientIp } from "@/lib/rate-limit";
-import { requireGroup } from "@/lib/services/groups";
+import { assertSettingsPin, requireGroup } from "@/lib/services/groups";
 
 /**
  * Build the per-request context. `headers` is empty for RSC calls.
@@ -99,4 +99,17 @@ export const groupProcedure = baseProcedure
     }
     const actor: Actor = { memberId: input.actor?.memberId ?? null, deviceId: input.actor?.deviceId ?? null };
     return next({ ctx: { group, actor } });
+  });
+
+/**
+ * Group procedure that also checks the group's settings PIN (input `pin`)
+ * when one is set: FORBIDDEN PIN_REQUIRED / PIN_INVALID, or
+ * TOO_MANY_REQUESTS PIN_LOCKED after repeated wrong PINs. For actions that
+ * hand out or withdraw credentials (API tokens, hooks, webhooks, tags).
+ */
+export const groupPinProcedure = groupProcedure
+  .input(z.object({ pin: z.string().max(16).nullish() }))
+  .use(async ({ ctx, input, next }) => {
+    await assertSettingsPin(ctx.group, input.pin, { client: ctx.clientIp });
+    return next();
   });

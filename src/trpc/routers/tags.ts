@@ -3,7 +3,9 @@
  * Thin wrappers over src/lib/services/tags.ts.
  *
  *  - Group-scoped procedures (groupProcedure: the group id is the secret):
- *    list, create, revoke, rotate, relabel, qr.
+ *    list, relabel, qr; create, revoke and rotate also need the settings
+ *    PIN when the group has one (groupPinProcedure), as they hand out or
+ *    withdraw credentials.
  *  - Tag-scoped procedures (baseProcedure, token only): resolve, complete,
  *    undo, createMember. They can only touch the tag's own chore and never
  *    return the group id (see src/lib/tags.ts for the fingerprint design).
@@ -27,7 +29,7 @@ import {
   undoViaTag,
   undoViaTagInput,
 } from "@/lib/services/tags";
-import { baseProcedure, createTRPCRouter, groupProcedure } from "@/trpc/init";
+import { baseProcedure, createTRPCRouter, groupPinProcedure, groupProcedure } from "@/trpc/init";
 
 const id = z.string().min(1).max(64);
 
@@ -37,16 +39,16 @@ export const tagsRouter = createTRPCRouter({
   list: groupProcedure
     .input(z.object({ activeOnly: z.boolean().optional() }))
     .query(({ ctx, input }) => listTags(ctx.group.id, { activeOnly: input.activeOnly })),
-  create: groupProcedure
+  create: groupPinProcedure
     .input(createTagInput)
     .mutation(({ ctx, input }) =>
       createTag(ctx.group.id, { choreId: input.choreId, kind: input.kind, label: input.label }, ctx.actor),
     ),
-  revoke: groupProcedure
+  revoke: groupPinProcedure
     .input(z.object({ tagId: id }))
     .mutation(({ ctx, input }) => revokeTag(ctx.group.id, input.tagId, ctx.actor)),
   /** Revoke and replace with a new token (same chore, kind and label). Returns the new tag. */
-  rotate: groupProcedure
+  rotate: groupPinProcedure
     .input(z.object({ tagId: id }))
     .mutation(({ ctx, input }) => rotateTag(ctx.group.id, input.tagId, ctx.actor)),
   relabel: groupProcedure
