@@ -3,7 +3,7 @@
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { PlusIcon } from "lucide-react";
 import { useNow, useTranslations } from "next-intl";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
@@ -36,7 +36,12 @@ export function ChoresView() {
 
   return (
     <div className="flex flex-col gap-4">
-      <TalliesStrip />
+      {/* Suspense, not `if (!data)`: the prefetch may still be streaming
+          during SSR, and rendering a placeholder there but the strip on the
+          client is a hydration mismatch. */}
+      <Suspense fallback={<div className="h-10" />}>
+        <TalliesStrip />
+      </Suspense>
 
       {active.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed px-6 py-12 text-center">
@@ -114,8 +119,7 @@ function TalliesStrip() {
   const trpc = useTRPC();
   const group = useGroup();
   const { me } = useGroupIdentity();
-  const { data } = useQuery(trpc.groups.members.tallies.queryOptions({ groupId: group.id }));
-  if (!data) return <div className="h-10" />;
+  const { data } = useSuspenseQuery(trpc.groups.members.tallies.queryOptions({ groupId: group.id }));
   const byId = new Map(data.tallies.map((x) => [x.memberId, x.week]));
   const members = group.members.filter((m) => !m.archivedAt || (byId.get(m.id) ?? 0) > 0);
   if (members.length === 0) return null;

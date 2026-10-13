@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { ArchiveIcon, ArchiveRestoreIcon, CheckIcon, Loader2Icon, MoreVerticalIcon, PencilIcon, PlusIcon, UserCheckIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
@@ -41,7 +41,9 @@ export function MembersView() {
   const { me } = useGroupIdentity();
   const [name, setName] = useState("");
   const [editing, setEditing] = useState<GroupMember | null>(null);
-  const tallies = useQuery(trpc.groups.members.tallies.queryOptions({ groupId: group.id })).data;
+  // Suspense query: it is prefetched, and a plain useQuery could render "no
+  // tallies" during SSR (still streaming) but tallies on the client.
+  const tallies = useSuspenseQuery(trpc.groups.members.tallies.queryOptions({ groupId: group.id })).data;
   const tally = new Map(tallies?.tallies.map((x) => [x.memberId, x]) ?? []);
 
   const invalidate = () => qc.invalidateQueries(trpc.groups.pathFilter());
