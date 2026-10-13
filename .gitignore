@@ -46,3 +46,12 @@ next-env.d.ts
 
 # Claude Code agent worktrees
 /.claude/worktrees/
+
+/src/generated/prisma-sqlite
+
+# local SQLite databases
+/data/
+
+# built by scripts/build-sw.mjs after `next build`
+/public/sw.js
+/public/sw.js.map

@@ -1,1 +1,41 @@
-{}
+{
+  "offline": {
+    "title": "You're offline",
+    "body": "This page isn't available offline yet. Pages you've opened before still work, and any chores you tick off are saved on this device and synced when you're back online.",
+    "retry": "Try again",
+    "home": "Go to my groups"
+  },
+  "queue": {
+    "waiting": "{count, plural, one {# completion waiting to sync} other {# completions waiting to sync}}",
+    "syncNow": "Sync now",
+    "syncing": "Syncing…",
+    "synced": "{count, plural, one {Synced # completion} other {Synced # completions}}",
+    "rejected": "{count, plural, one {# completion couldn't be synced} other {# completions couldn't be synced}}",
+    "rejectedHint": "The tag may have been revoked or the chore or member removed."
+  },
+  "push": {
+    "label": "Notifications on this device",
+    "description": "Get a notification when chores are due or overdue.",
+    "enable": "Turn on notifications",
+    "disable": "Turn off notifications",
+    "enabled": "Notifications are on for this device.",
+    "disabled": "Notifications turned off.",
+    "unsupported": "This browser doesn't support notifications.",
+    "iosInstall": "On iPhone, add Yakka to your Home Screen first (iOS 16.4+)",
+    "denied": "Notifications are blocked. Allow them for this site in your browser settings.",
+    "notConfigured": "Notifications aren't set up on this server.",
+    "noServiceWorker": "Notifications need the installed app's service worker. Reload the page and try again.",
+    "elsewhere": "This device gets notifications for another member or group. Turning them on here moves them.",
+    "pickMember": "Choose who you are in this group first.",
+    "error": "Couldn't change notification settings."
+  },
+  "install": {
+    "title": "Install Yakka",
+    "body": "Add Yakka to your home screen for one-tap access, offline use and notifications.",
+    "action": "Install",
+    "dismiss": "Not now",
+    "iosTitle": "Add Yakka to your Home Screen",
+    "iosSteps": "Tap the Share button, then “Add to Home Screen”.",
+    "iosNote": "Notifications on iPhone only work from the Home Screen app."
+  }
+}

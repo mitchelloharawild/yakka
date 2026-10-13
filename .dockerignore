@@ -1,0 +1,22 @@
+# Keep the build context small and free of secrets.
+.git
+.github
+.claude
+.tmp
+.vercel
+node_modules
+.next
+out
+coverage
+data
+src/generated
+public/sw.js
+public/sw.js.map
+*.tsbuildinfo
+next-env.d.ts
+npm-debug.log*
+.env*
+!.env.example
+Dockerfile
+.dockerignore
+compose*.yaml

@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
     "src/generated/**",
     // Agent worktrees.
     ".claude/**",
+    // Built by scripts/build-sw.mjs.
+    "public/sw.js",
   ]),
 ]);
 
