@@ -6,8 +6,11 @@
  *  - ROUND_ROBIN: rotates over the group's non-archived members ordered by
  *    createdAt (then id). The member after whoever did the last (non-undone)
  *    completion is next, so if someone covers your turn the rotation carries
- *    on from them. Before any completion, or when the last completer is not
- *    in the rotation (automation, archived member), it starts at
+ *    on from them. If the last completer has since been archived, the
+ *    rotation continues with the next active member after their place in
+ *    the order (archived members keep their createdAt slot), so archiving
+ *    someone doesn't reset it. Before any completion, or when the last
+ *    completion has no member (automation) or an unknown one, it starts at
  *    chore.assigneeId if set and active, else the first member.
  */
 
@@ -32,9 +35,11 @@ export interface AssigneeInput {
 
 /** Active members in rotation order (createdAt, then id). */
 export function rotationOrder<M extends AssigneeMember>(members: M[]): M[] {
-  return members
-    .filter((m) => !m.archivedAt)
-    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
+  return members.filter((m) => !m.archivedAt).sort(byRotation);
+}
+
+function byRotation(a: AssigneeMember, b: AssigneeMember): number {
+  return a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id);
 }
 
 /** The id of the member whose turn it is, or null for "anyone". */
@@ -50,8 +55,15 @@ export function currentAssigneeId(input: AssigneeInput): string | null {
       return isActive(chore.assigneeId) ? chore.assigneeId : null;
     case "ROUND_ROBIN": {
       if (active.length === 0) return null;
-      const idx = lastCompletedBy ? active.findIndex((m) => m.id === lastCompletedBy) : -1;
-      if (idx >= 0) return active[(idx + 1) % active.length].id;
+      // Order everyone (archived included) so an archived last completer still has a place.
+      const all = [...members].sort(byRotation);
+      const idx = lastCompletedBy ? all.findIndex((m) => m.id === lastCompletedBy) : -1;
+      if (idx >= 0) {
+        for (let i = 1; i <= all.length; i++) {
+          const next = all[(idx + i) % all.length];
+          if (!next.archivedAt) return next.id;
+        }
+      }
       return isActive(chore.assigneeId) ? chore.assigneeId : active[0].id;
     }
   }

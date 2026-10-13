@@ -167,8 +167,11 @@ violation) and only notify if the insert succeeded.
 - `ANYONE`: always null.
 - `FIXED`: `assigneeId`, or null if that member is archived.
 - `ROUND_ROBIN`: the next non-archived member (ordered by `createdAt`) after
-  whoever did the last completion. It starts at `assigneeId`, or at the first
-  member.
+  whoever did the last completion. An archived last completer keeps their
+  place in the order, so the turn passes to the next active member after
+  them rather than resetting. With no completion (or an automation one) it
+  starts at `assigneeId`, or at the first member. Pass **all** members,
+  archived included.
 
 ### Completions (`src/lib/services/completions.ts`)
 

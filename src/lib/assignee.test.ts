@@ -38,10 +38,19 @@ describe("currentAssigneeId", () => {
     expect(currentAssigneeId({ chore, members, lastCompletedBy: "c" })).toBe("a");
   });
 
-  it("ROUND_ROBIN falls back when the last completer is not in rotation", () => {
+  it("ROUND_ROBIN falls back when the last completion has no known member", () => {
     const chore = { assigneeMode: "ROUND_ROBIN" as const, assigneeId: "b" };
-    expect(currentAssigneeId({ chore, members, lastCompletedBy: "d" })).toBe("b");
+    expect(currentAssigneeId({ chore, members, lastCompletedBy: "zz" })).toBe("b");
     expect(currentAssigneeId({ chore, members, lastCompletedBy: null })).toBe("b");
+  });
+
+  it("ROUND_ROBIN continues after an archived last completer instead of resetting", () => {
+    // Order by createdAt: a, b, x (archived), c. x did it last, so c is next, not the start (a/b).
+    const x = { id: "x", createdAt: new Date(Date.UTC(2026, 0, 2, 12)), archivedAt: d(6) };
+    const chore = { assigneeMode: "ROUND_ROBIN" as const, assigneeId: "b" };
+    expect(currentAssigneeId({ chore, members: [alice, bob, x, carol], lastCompletedBy: "x" })).toBe("c");
+    // The archived member is last in order (dave): wraps to the first active member.
+    expect(currentAssigneeId({ chore, members, lastCompletedBy: "d" })).toBe("a");
   });
 
   it("ROUND_ROBIN with no active members is null", () => {
