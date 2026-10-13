@@ -24,15 +24,33 @@ npm run db:seed           # optional: demo group (prints its URL)
 npm run dev               # http://localhost:3000
 ```
 
+SQLite instead of Postgres: set `DATABASE_URL="file:./data/yakka.db"` in
+`.env`, then `npm run db:deploy`. `npm run build` also bundles the service
+worker (`public/sw.js`). The service worker is only registered in production
+builds (`npm run build && npm start`).
+
+## Deployment
+
+Use Vercel (with Vercel Cron), or the Docker image
+`ghcr.io/mitchelloharawild/yakka` with Postgres (`compose.prod.yaml`) or
+SQLite in a single container (`compose.sqlite.yaml`). The PWA, push
+notifications and NFC need HTTPS. See [Deployment](docs/DEPLOYMENT.md).
+
+```sh
+docker run -d -p 3000:3000 -v yakka-data:/data ghcr.io/mitchelloharawild/yakka
+```
+
 ## Docs
 
 - [Architecture](docs/ARCHITECTURE.md): data model, tap-to-complete flow,
   identity in the browser, API and webhooks, scheduling and deployment.
 - [Development](docs/DEVELOPMENT.md): code layout, conventions, ownership
   and Next.js 16 gotchas.
+- [Deployment](docs/DEPLOYMENT.md): Vercel, Docker (Postgres or SQLite),
+  environment variables, HTTPS, VAPID keys, rate limiting.
 - [Naming](docs/NAMING.md): how the name was chosen.
 
 ## Stack
 
 Next.js 16 (App Router, Cache Components), TypeScript, tRPC + TanStack Query,
-Tailwind CSS v4 + shadcn/ui, next-intl, Prisma 7 with PostgreSQL.
+Tailwind CSS v4 + shadcn/ui, next-intl, Prisma 7 with PostgreSQL or SQLite, Serwist service worker.

@@ -1,0 +1,45 @@
+# Production: Yakka + Postgres. See docs/DEPLOYMENT.md.
+#   docker compose -f compose.prod.yaml up -d
+# Put an HTTPS reverse proxy in front (PWA, push and NFC need HTTPS).
+name: yakka-prod
+
+services:
+  app:
+    image: ghcr.io/mitchelloharawild/yakka:latest
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://yakka:${POSTGRES_PASSWORD:-yakka}@db:5432/yakka?schema=public
+      BASE_URL: ${BASE_URL:-http://localhost:3000}
+      CRON_SECRET: ${CRON_SECRET:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      ENABLE_INTERNAL_CRON: "true"
+      ENABLE_GROUP_DELETION: ${ENABLE_GROUP_DELETION:-true}
+      ALLOW_JOIN_FROM_TAG_DEFAULT: ${ALLOW_JOIN_FROM_TAG_DEFAULT:-true}
+      ANALYTICS_PROVIDER: ${ANALYTICS_PROVIDER:-}
+      RATE_LIMIT_PROXY_HOPS: ${RATE_LIMIT_PROXY_HOPS:-1}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: yakka
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-yakka}
+      POSTGRES_DB: yakka
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yakka -d yakka"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - db-data:/var/lib/postgresql/data
+
+volumes:
+  db-data:
