@@ -5,6 +5,7 @@
 import { z } from "zod";
 import { listActivity } from "@/lib/activity";
 import { prisma } from "@/lib/db";
+import { env } from "@/lib/env";
 import {
   createChore,
   createChoreInput,
@@ -26,7 +27,14 @@ import {
   updateGroup,
   updateGroupInput,
 } from "@/lib/services/groups";
-import { addMember, addMemberInput, setMemberArchived, updateMember, updateMemberInput } from "@/lib/services/members";
+import {
+  addMember,
+  addMemberInput,
+  memberTallies,
+  setMemberArchived,
+  updateMember,
+  updateMemberInput,
+} from "@/lib/services/members";
 import { actorInput, baseProcedure, createTRPCRouter, groupProcedure } from "@/trpc/init";
 
 const id = z.string().min(1).max(64);
@@ -42,6 +50,8 @@ const membersRouter = createTRPCRouter({
   setArchived: groupProcedure
     .input(z.object({ memberId: id, archived: z.boolean() }))
     .mutation(({ ctx, input }) => setMemberArchived(ctx.group.id, input.memberId, input.archived, ctx.actor)),
+  /** Completions per member this week / this month (group timezone). */
+  tallies: groupProcedure.query(({ ctx }) => memberTallies(ctx.group.id)),
 });
 
 const choresRouter = createTRPCRouter({
@@ -106,6 +116,8 @@ const activityRouter = createTRPCRouter({
 });
 
 export const groupsRouter = createTRPCRouter({
+  /** Instance-wide flags the group UI needs (no secrets). */
+  config: baseProcedure.query(() => ({ enableGroupDeletion: env().ENABLE_GROUP_DELETION })),
   /** Create a group with initial members. Returns the group (no PIN hash) with members. */
   create: baseProcedure
     .input(createGroupInput.extend({ actor: actorInput }))

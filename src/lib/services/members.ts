@@ -3,6 +3,7 @@ import type { Member } from "@/generated/prisma/client";
 import { logActivity, type Actor } from "@/lib/activity";
 import { prisma } from "@/lib/db";
 import { notFound } from "@/lib/errors";
+import { fromWallClock, toWallClock } from "@/lib/schedule";
 import { colourSchema, memberNameSchema, requireGroup } from "@/lib/services/groups";
 
 /** zod: input of addMember(). */
@@ -65,6 +66,39 @@ export async function updateMember(
     });
     return member;
   });
+}
+
+/** Start of the current week (Monday 00:00) and month in `tz`, as instants. */
+export function periodStarts(now: Date, tz: string): { week: Date; month: Date } {
+  const w = toWallClock(now, tz);
+  const daysSinceMonday = (w.getUTCDay() + 6) % 7;
+  return {
+    week: fromWallClock(new Date(Date.UTC(w.getUTCFullYear(), w.getUTCMonth(), w.getUTCDate() - daysSinceMonday)), tz),
+    month: fromWallClock(new Date(Date.UTC(w.getUTCFullYear(), w.getUTCMonth(), 1)), tz),
+  };
+}
+
+/**
+ * Non-undone completions per member this week (from Monday) and this month,
+ * in the group's timezone. memberId null = automations / unknown.
+ */
+export async function memberTallies(groupId: string, now = new Date()) {
+  const group = await requireGroup(groupId);
+  const { week, month } = periodStarts(now, group.timezone);
+  const count = (since: Date) =>
+    prisma.completion.groupBy({
+      by: ["memberId"],
+      where: { chore: { groupId }, undoneAt: null, completedAt: { gte: since } },
+      _count: { _all: true },
+    });
+  const [w, m] = await Promise.all([count(week), count(month)]);
+  const out = new Map<string | null, { memberId: string | null; week: number; month: number }>();
+  for (const r of m) out.set(r.memberId, { memberId: r.memberId, week: 0, month: r._count._all });
+  for (const r of w) {
+    const e = out.get(r.memberId) ?? { memberId: r.memberId, week: 0, month: 0 };
+    out.set(r.memberId, { ...e, week: r._count._all });
+  }
+  return { weekStart: week, monthStart: month, tallies: [...out.values()] };
 }
 
 /** Archive (archived = true) or restore (false) a member. Archived members leave rotations. */
