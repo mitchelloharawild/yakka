@@ -130,7 +130,7 @@ The next due date is **never stored**. Work it out on read:
 
 ```ts
 import { computeSchedule } from "@/lib/schedule";
-const s = computeSchedule({ chore, timezone: group.timezone, lastCompletion, now });
+const s = computeSchedule({ chore, timezone: group.timezone, lastCompletion, previousCompletions, completeHistory, now });
 // s: { status: "upcoming"|"due"|"overdue"|"done"|"unscheduled", nextDueAt, overdueAt,
 //      dueToday, recurring, missedCount, lastCompletion }
 ```
@@ -149,9 +149,23 @@ The rules:
   the chore was created, so the chore is due at 00:00. Combine that with
   `graceMinutes = 1440` to mean "any time that day". The UI should normally
   ask for a time.
-- `anchor = DUE_DATE`: a completion in the second half of the interval counts
-  as an early completion of the next occurrence. Otherwise it's a late
-  completion of the previous one.
+- `anchor = DUE_DATE`: a completion satisfies the **earliest occurrence not
+  yet satisfied**. With P the latest occurrence at or before the completion
+  and N the next one:
+  - P not satisfied yet (it was missed): a late completion of P, so N is
+    next. Weekly Monday chore, Monday 5 Oct missed, done Friday 9 Oct: next
+    due Monday 12 Oct. Exception: within the **early window** before N (a
+    quarter of the interval, at most 12 h; Sunday evening for a Monday
+    chore) it counts for N instead.
+  - P already satisfied: in the second half of the interval it's an early
+    completion of N (done Saturday for Monday); in the first half it's an
+    extra completion and changes nothing.
+  - Before the first occurrence: an early completion of it.
+  This needs a little history, so pass `previousCompletions` (the
+  `SCHEDULE_HISTORY` = 3 non-undone completions before the last, newest
+  first) and `completeHistory` (true if there are no older ones).
+  `toChoreView()` and the cron job do. Without history, whether P was
+  satisfied is unknown and the plain midpoint rule applies.
 - `anchor = COMPLETION`: the next due date is counted from the completion's
   local date, at DTSTART's time of day. For HOURLY rules and finer, it's
   counted from the exact completion time.
@@ -168,7 +182,7 @@ Other helpers: `describeRRule` (English text), `upcomingOccurrences` (editor
 preview), `toWallClock`/`fromWallClock`/`startOfLocalDay`/`sameLocalDay`,
 `isValidTimezone` and `compareSchedules`.
 
-**Cron:** `scheduleTransitions({ chore, timezone, lastCompletion, since, now })`
+**Cron:** `scheduleTransitions({ chore, timezone, lastCompletion, previousCompletions, completeHistory, since, now })`
 returns `[{ kind: "due"|"overdue", dueAt, at }]` for each threshold crossed in
 `(since, now]`. For each transition, insert a `ChoreNotice` (catch the unique
 violation) and only notify if the insert succeeded.

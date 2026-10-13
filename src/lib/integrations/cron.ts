@@ -20,7 +20,7 @@ import { emitEvent } from "@/lib/events";
 import { sendExternalNotice } from "@/lib/integrations/notify";
 import { sendPushToGroup, type PushPayload, type PushResult } from "@/lib/integrations/push";
 import { processDueDeliveries, type DeliveryRunResult } from "@/lib/integrations/webhooks";
-import { scheduleTransitions, type ScheduleTransition } from "@/lib/schedule";
+import { SCHEDULE_HISTORY, scheduleTransitions, type ScheduleTransition } from "@/lib/schedule";
 import messages from "../../../messages/en/integrations.json";
 
 /** Minimum look-back window: covers a 5-minute schedule with slack for late runs. */
@@ -109,7 +109,7 @@ export async function detectDueNotices(input: { since: Date; now: Date }) {
             completions: {
               where: { undoneAt: null },
               orderBy: [{ completedAt: "desc" }, { id: "desc" }],
-              take: 1,
+              take: 1 + SCHEDULE_HISTORY,
               include: { member: { select: { id: true, name: true } } },
             },
           },
@@ -125,7 +125,15 @@ export async function detectDueNotices(input: { since: Date; now: Date }) {
         const lastCompletion = completions[0] ?? null;
         let transitions: ScheduleTransition[];
         try {
-          transitions = scheduleTransitions({ chore, timezone: group.timezone, lastCompletion, since, now });
+          transitions = scheduleTransitions({
+            chore,
+            timezone: group.timezone,
+            lastCompletion,
+            previousCompletions: completions.slice(1),
+            completeHistory: completions.length < 1 + SCHEDULE_HISTORY,
+            since,
+            now,
+          });
         } catch (err) {
           console.error(`[cron] schedule failed for chore ${chore.id}`, err);
           continue;

@@ -13,11 +13,23 @@
  *  - DTSTART is `chore.startsAt`, or 00:00 local on the day the chore was
  *    created when startsAt is null.
  *  - No completion yet: the first occurrence at/after DTSTART is due.
- *  - Anchor DUE_DATE: with the last completion C, let P be the latest
- *    occurrence <= C and N the first occurrence > C. If C is in the second
- *    half of [P, N) (or there is no P) it counts as an early completion of N,
- *    so the next due is the occurrence after N; otherwise it was a (late)
- *    completion of P and N is next.
+ *  - Anchor DUE_DATE: a completion satisfies the earliest occurrence that
+ *    isn't satisfied yet. For a completion C, let P be the latest occurrence
+ *    <= C and N the first occurrence > C:
+ *      - no P (before the first occurrence): C satisfies N (early);
+ *      - P not yet satisfied: C is a (late or on-time) completion of P, so N
+ *        is next. Exception: C within EARLY_WINDOW of N (a quarter of the
+ *        interval, at most 12 h) counts as an early completion of N, and P
+ *        is simply missed;
+ *      - P already satisfied (by an earlier completion): C in the second
+ *        half of [P, N) is an early completion of N; in the first half it's
+ *        an extra completion of P and changes nothing;
+ *      - N already satisfied: C changes nothing.
+ *    Completions are folded oldest first, so this needs a little history:
+ *    pass `previousCompletions` (SCHEDULE_HISTORY of them is plenty). For
+ *    the oldest one given, "was P satisfied?" is unknown unless
+ *    `completeHistory` says nothing came before; it's then assumed
+ *    satisfied (the plain midpoint rule).
  *  - Anchor COMPLETION: the rule is re-anchored on the completion: DTSTART'
  *    is C's local date at DTSTART's time of day (or C itself for HOURLY and
  *    finer rules), and the next due is the first occurrence after DTSTART'.
@@ -57,6 +69,9 @@ export interface ScheduleCompletion {
   completedAt: Date;
 }
 
+/** How many non-undone completions before the latest one callers should pass as `previousCompletions`. */
+export const SCHEDULE_HISTORY = 3;
+
 /** Input for computeSchedule(). */
 export interface ScheduleInput<C extends ScheduleCompletion = ScheduleCompletion> {
   chore: ScheduleChore;
@@ -64,6 +79,14 @@ export interface ScheduleInput<C extends ScheduleCompletion = ScheduleCompletion
   timezone: string;
   /** The latest completion that has not been undone, or null. */
   lastCompletion: C | null;
+  /**
+   * DUE_DATE anchor: the non-undone completions before `lastCompletion`,
+   * newest first (up to SCHEDULE_HISTORY). Used to tell a late completion
+   * of a missed occurrence from an early completion of the next one.
+   */
+  previousCompletions?: ScheduleCompletion[];
+  /** True when there are no completions older than those given (e.g. fewer than requested came back). */
+  completeHistory?: boolean;
   /** Defaults to new Date(). Pass explicitly in tests and in the cron job. */
   now?: Date;
 }
@@ -212,6 +235,7 @@ function firstUnsatisfied(
   chore: ScheduleChore,
   tz: string,
   last: ScheduleCompletion | null,
+  history: { previous: ScheduleCompletion[]; complete: boolean } = { previous: [], complete: false },
 ): { wall: Date; rule: RRule } | null {
   const opts = parseOptions(chore.rrule!);
   const dt = dtstartWall(chore, tz);
@@ -243,12 +267,43 @@ function firstUnsatisfied(
     return result(reRule.after(anchor, false), reRule);
   }
 
-  // DUE_DATE anchor.
+  // DUE_DATE anchor: fold the completions oldest first.
+  const walls = [...history.previous]
+    .filter((x) => x.completedAt.getTime() <= last.completedAt.getTime())
+    .reverse()
+    .map((x) => toWallClock(x.completedAt, tz));
+  walls.push(c);
+  let satisfied: Date | null = null;
+  walls.forEach((cw, i) => {
+    satisfied = satisfyDueDate(rule, cw, satisfied, i === 0 && !history.complete);
+  });
+  if (!satisfied) return result(rule.after(c, false));
+  return result(rule.after(satisfied, false));
+}
+
+/** Early-completion window before an occurrence, as a share of the interval and in absolute terms. */
+const EARLY_WINDOW_SHARE = 0.25;
+const EARLY_WINDOW_MAX_MS = 12 * 60 * MINUTE;
+
+/**
+ * DUE_DATE: the latest satisfied occurrence (wall clock) after completion
+ * `c`, given the latest satisfied occurrence before it. `assumePrevious`:
+ * nothing is known about earlier completions, so treat P as satisfied.
+ */
+function satisfyDueDate(rule: RRule, c: Date, satisfied: Date | null, assumePrevious: boolean): Date | null {
   const n = rule.after(c, false);
-  if (!n) return null;
   const p = rule.before(c, true);
-  const early = !p || c.getTime() >= p.getTime() + (n.getTime() - p.getTime()) / 2;
-  return result(early ? rule.after(n, false) : n);
+  const later = (a: Date | null, b: Date) => (a && a.getTime() > b.getTime() ? a : b);
+  if (!p) return n ? later(satisfied, n) : satisfied; // before the first occurrence: early completion of it
+  const pSatisfied = assumePrevious || (satisfied !== null && satisfied.getTime() >= p.getTime());
+  if (!n) return later(satisfied, p); // series ended after P
+  if (satisfied && satisfied.getTime() >= n.getTime()) return satisfied; // N already covered
+  const interval = n.getTime() - p.getTime();
+  const untilN = n.getTime() - c.getTime();
+  const inWindow = untilN <= Math.min(interval * EARLY_WINDOW_SHARE, EARLY_WINDOW_MAX_MS);
+  if (!pSatisfied) return inWindow ? n : p; // late (or on-time) completion of P, unless right before N
+  const secondHalf = c.getTime() >= p.getTime() + interval / 2;
+  return secondHalf || inWindow ? n : later(satisfied, p);
 }
 
 /** Next due instant for a recurring chore after roll-forward, plus missed count; null if the series ended. */
@@ -257,8 +312,9 @@ function nextRecurringDue(
   tz: string,
   last: ScheduleCompletion | null,
   now: Date,
+  history?: { previous: ScheduleCompletion[]; complete: boolean },
 ): { due: Date; missed: number } | null {
-  const first = firstUnsatisfied(chore, tz, last);
+  const first = firstUnsatisfied(chore, tz, last, history);
   if (!first) return null;
   const nowWall = toWallClock(now, tz);
   const latest = first.rule.before(nowWall, true);
@@ -309,7 +365,10 @@ export function computeSchedule<C extends ScheduleCompletion>(input: ScheduleInp
   let nextDueAt: Date | null;
   let missedCount = 0;
   if (recurring) {
-    const next = nextRecurringDue(chore, timezone, lastCompletion, now);
+    const next = nextRecurringDue(chore, timezone, lastCompletion, now, {
+      previous: input.previousCompletions ?? [],
+      complete: input.completeHistory ?? false,
+    });
     if (!next) return finish("done", null);
     nextDueAt = next.due;
     missedCount = next.missed;

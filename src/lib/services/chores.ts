@@ -4,7 +4,7 @@ import { logActivity, type Actor } from "@/lib/activity";
 import { currentAssigneeId } from "@/lib/assignee";
 import { prisma, type Db } from "@/lib/db";
 import { DomainError, notFound } from "@/lib/errors";
-import { compareSchedules, computeSchedule, validateRRule, type Schedule } from "@/lib/schedule";
+import { compareSchedules, computeSchedule, SCHEDULE_HISTORY, validateRRule, type Schedule } from "@/lib/schedule";
 import { requireGroup } from "@/lib/services/groups";
 
 /** A completion with its member (if any), as embedded in ChoreView. */
@@ -52,22 +52,35 @@ export const createChoreInput = z.object(choreFields);
 /** zod: patch accepted by updateChore() (all fields optional; null clears). */
 export const updateChoreInput = z.object(choreFields).partial();
 
+/** The latest non-undone completion plus SCHEDULE_HISTORY before it (newest first). */
 const lastCompletionInclude = {
   completions: {
     where: { undoneAt: null },
     orderBy: [{ completedAt: "desc" }, { id: "desc" }],
-    take: 1,
+    take: 1 + SCHEDULE_HISTORY,
     include: { member: { select: { id: true, name: true, colour: true } } },
   },
 } satisfies Prisma.ChoreInclude;
 
-/** Build a ChoreView from a chore row, its last completion, the group's members and timezone. */
+/**
+ * Build a ChoreView from a chore row, its recent non-undone completions
+ * (newest first: the last one plus up to SCHEDULE_HISTORY before it), the
+ * group's members and timezone.
+ */
 export function toChoreView(
   chore: Chore,
-  lastCompletion: CompletionWithMember | null,
+  completions: CompletionWithMember[],
   ctx: { timezone: string; members: Member[]; now?: Date },
 ): ChoreView {
-  const schedule = computeSchedule({ chore, timezone: ctx.timezone, lastCompletion, now: ctx.now });
+  const lastCompletion = completions[0] ?? null;
+  const schedule = computeSchedule({
+    chore,
+    timezone: ctx.timezone,
+    lastCompletion,
+    previousCompletions: completions.slice(1),
+    completeHistory: completions.length < 1 + SCHEDULE_HISTORY,
+    now: ctx.now,
+  });
   return {
     ...chore,
     schedule,
@@ -97,7 +110,7 @@ export async function listChores(
     }),
   ]);
   const views = chores.map(({ completions, ...chore }) =>
-    toChoreView(chore, completions[0] ?? null, { timezone: group.timezone, members, now: opts.now }),
+    toChoreView(chore, completions, { timezone: group.timezone, members, now: opts.now }),
   );
   return views.sort((a, b) => compareSchedules(a.schedule, b.schedule) || a.sortOrder - b.sortOrder);
 }
@@ -114,7 +127,7 @@ export async function getChoreView(
   });
   if (!chore) throw notFound("CHORE_NOT_FOUND");
   const { completions, group, ...rest } = chore;
-  return toChoreView(rest, completions[0] ?? null, { timezone: group.timezone, members: group.members, now: opts.now });
+  return toChoreView(rest, completions, { timezone: group.timezone, members: group.members, now: opts.now });
 }
 
 async function assertAssignee(groupId: string, assigneeId: string | null | undefined) {

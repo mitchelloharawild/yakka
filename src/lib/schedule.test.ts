@@ -248,6 +248,89 @@ describe("computeSchedule: recurring, DUE_DATE anchor", () => {
   });
 });
 
+describe("computeSchedule: DUE_DATE completions satisfy the earliest unsatisfied occurrence", () => {
+  // Weekly on Monday (00:00 UTC, "any time that day"), starting Mon 7 Sep 2026.
+  const mondays = chore({ rrule: "FREQ=WEEKLY;BYDAY=MO", startsAt: at("2026-09-07T00:00:00Z"), graceMinutes: 1440 });
+  const next = (last: string, previous: string[], now: string, completeHistory = false) =>
+    computeSchedule({
+      chore: mondays,
+      timezone: "UTC",
+      lastCompletion: done(last),
+      previousCompletions: previous.map(done),
+      completeHistory,
+      now: at(now),
+    });
+
+  it("late: done Friday after missing Monday satisfies that Monday, not the next one", () => {
+    // Overdue since Mon 5 Oct, done Fri 9 Oct: next due is Mon 12 Oct (it used to skip to 19 Oct).
+    const s = next("2026-10-09T10:00:00Z", ["2026-09-28T10:00:00Z"], "2026-10-09T11:00:00Z");
+    expect(s.nextDueAt).toEqual(at("2026-10-12T00:00:00Z"));
+    expect(s.status).toBe("upcoming");
+  });
+
+  it("late: the same when it's the first completion ever", () => {
+    const s = next("2026-10-09T10:00:00Z", [], "2026-10-09T11:00:00Z", true);
+    expect(s.nextDueAt).toEqual(at("2026-10-12T00:00:00Z"));
+  });
+
+  it("without history it falls back to the midpoint rule", () => {
+    const s = computeSchedule({
+      chore: mondays,
+      timezone: "UTC",
+      lastCompletion: done("2026-10-09T10:00:00Z"),
+      now: at("2026-10-09T11:00:00Z"),
+    });
+    expect(s.nextDueAt).toEqual(at("2026-10-19T00:00:00Z"));
+  });
+
+  it("on time: done on the Monday", () => {
+    const s = next("2026-10-05T10:00:00Z", ["2026-09-28T10:00:00Z"], "2026-10-05T11:00:00Z");
+    expect(s.nextDueAt).toEqual(at("2026-10-12T00:00:00Z"));
+  });
+
+  it("early: done Saturday after this week's Monday was done counts for next Monday", () => {
+    const s = next("2026-10-10T10:00:00Z", ["2026-10-05T10:00:00Z", "2026-09-28T10:00:00Z"], "2026-10-10T11:00:00Z");
+    expect(s.nextDueAt).toEqual(at("2026-10-19T00:00:00Z"));
+  });
+
+  it("early, every week: a chain of Saturday completions keeps counting for the following Monday", () => {
+    const s = next("2026-10-10T10:00:00Z", ["2026-10-03T10:00:00Z", "2026-09-26T10:00:00Z"], "2026-10-10T11:00:00Z");
+    expect(s.nextDueAt).toEqual(at("2026-10-19T00:00:00Z"));
+  });
+
+  it("early window: done the evening before Monday counts for that Monday even if last week was missed", () => {
+    // Sun 11 Oct 15:00 is 9 h before Mon 12 Oct (window: min(7 d / 4, 12 h) = 12 h).
+    const s = next("2026-10-11T15:00:00Z", ["2026-09-28T10:00:00Z"], "2026-10-11T16:00:00Z");
+    expect(s.nextDueAt).toEqual(at("2026-10-19T00:00:00Z"));
+  });
+
+  it("multiple missed: one completion catches up the latest missed occurrence only", () => {
+    // Last done 14 Sep; 21 Sep, 28 Sep and 5 Oct were missed. Done Fri 9 Oct: next is 12 Oct.
+    const s = next("2026-10-09T10:00:00Z", ["2026-09-14T10:00:00Z"], "2026-10-09T11:00:00Z");
+    expect(s.nextDueAt).toEqual(at("2026-10-12T00:00:00Z"));
+    expect(s.missedCount).toBe(0);
+    // ... and if 12 Oct is missed too, it rolls forward as usual.
+    const later = next("2026-10-09T10:00:00Z", ["2026-09-14T10:00:00Z"], "2026-10-20T10:00:00Z");
+    expect(later.nextDueAt).toEqual(at("2026-10-19T00:00:00Z"));
+    expect(later.missedCount).toBe(1);
+  });
+
+  it("an extra completion early in the week changes nothing", () => {
+    const s = next("2026-10-06T10:00:00Z", ["2026-10-05T10:00:00Z"], "2026-10-06T11:00:00Z");
+    expect(s.nextDueAt).toEqual(at("2026-10-12T00:00:00Z"));
+  });
+
+  it("a second early completion doesn't pre-pay a further week", () => {
+    const s = next("2026-10-11T10:00:00Z", ["2026-10-10T10:00:00Z", "2026-10-05T10:00:00Z"], "2026-10-11T11:00:00Z");
+    expect(s.nextDueAt).toEqual(at("2026-10-19T00:00:00Z"));
+  });
+
+  it("ignores previous completions newer than the last one", () => {
+    const s = next("2026-10-09T10:00:00Z", ["2026-10-10T10:00:00Z", "2026-09-28T10:00:00Z"], "2026-10-09T11:00:00Z");
+    expect(s.nextDueAt).toEqual(at("2026-10-12T00:00:00Z"));
+  });
+});
+
 describe("computeSchedule: recurring, COMPLETION anchor", () => {
   const every3 = chore({
     rrule: "FREQ=DAILY;INTERVAL=3",
