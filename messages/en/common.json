@@ -1,0 +1,44 @@
+{
+  "app": {
+    "name": "Yakka",
+    "tagline": "Share the yakka.",
+    "description": "Account-less household chores, ticked off with a tap."
+  },
+  "home": {
+    "title": "Share the yakka",
+    "intro": "Track household chores without accounts. Share a group link, stick a QR code or NFC tag where the job happens, and tap to tick it off.",
+    "createGroup": "Create a group",
+    "recentGroups": "Recent groups",
+    "noRecentGroups": "No groups yet."
+  },
+  "actions": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "undo": "Undo",
+    "close": "Close",
+    "back": "Back",
+    "retry": "Try again",
+    "copy": "Copy",
+    "copied": "Copied"
+  },
+  "theme": {
+    "toggle": "Toggle theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
+  "errors": {
+    "generic": "Something went wrong.",
+    "notFound": "Not found.",
+    "offline": "You're offline."
+  },
+  "status": {
+    "upcoming": "Upcoming",
+    "due": "Due",
+    "overdue": "Overdue",
+    "done": "Done",
+    "unscheduled": "Any time"
+  }
+}

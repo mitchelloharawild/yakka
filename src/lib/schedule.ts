@@ -17,17 +17,22 @@
  *    occurrence <= C and N the first occurrence > C. If C is in the second
  *    half of [P, N) (or there is no P) it counts as an early completion of N,
  *    so the next due is the occurrence after N; otherwise it was a (late)
- *    completion of P and N is next. Missed occurrences are not accumulated.
+ *    completion of P and N is next.
  *  - Anchor COMPLETION: the rule is re-anchored on the completion: DTSTART'
  *    is C's local date at DTSTART's time of day (or C itself for HOURLY and
  *    finer rules), and the next due is the first occurrence after DTSTART'.
  *    COUNT is ignored for re-anchored rules.
+ *  - Roll-forward: if more occurrences of the rule have since started (the
+ *    chore was neglected), nextDueAt is the latest occurrence <= now and
+ *    `missedCount` counts the skipped ones. Missed occurrences are never
+ *    owed: one completion catches the chore up.
  *  - One-off chores (rrule null, startsAt set): due at startsAt until any
  *    completion, then "done".
  *  - rrule null and startsAt null: "unscheduled" (can be completed any time).
  *  - status: upcoming (now < nextDueAt), due (nextDueAt <= now < overdueAt),
  *    overdue (now >= overdueAt), where overdueAt = nextDueAt + graceMinutes.
  *    With graceMinutes = 0 a chore goes straight from upcoming to overdue.
+ *    A chore with missedCount > 0 is always overdue.
  */
 import { TZDate } from "@date-fns/tz";
 import { Frequency, RRule, type Options } from "rrule";
@@ -74,6 +79,8 @@ export interface Schedule<C extends ScheduleCompletion = ScheduleCompletion> {
   dueToday: boolean;
   /** Whether the chore has an RRULE. */
   recurring: boolean;
+  /** Recurring only: occurrences that started and were skipped before nextDueAt (0 normally). */
+  missedCount: number;
   lastCompletion: C | null;
 }
 
@@ -194,16 +201,24 @@ function buildRule(opts: Partial<Options>, dtstart: Date): RRule {
   return new RRule({ ...opts, dtstart, tzid: null });
 }
 
-/** Next due instant for a recurring chore, or null if the series has ended. */
-function nextRecurringDue(chore: ScheduleChore, tz: string, last: ScheduleCompletion | null): Date | null {
+/** Cap on how many missed occurrences are counted (MINUTELY rules could be huge). */
+const MAX_MISSED = 999;
+
+/**
+ * Next due occurrence (floating wall-clock) for a recurring chore and the
+ * rule it belongs to, or null if the series has ended. Before roll-forward.
+ */
+function firstUnsatisfied(
+  chore: ScheduleChore,
+  tz: string,
+  last: ScheduleCompletion | null,
+): { wall: Date; rule: RRule } | null {
   const opts = parseOptions(chore.rrule!);
   const dt = dtstartWall(chore, tz);
   const rule = buildRule(opts, dt);
+  const result = (wall: Date | null, r: RRule = rule) => (wall ? { wall, rule: r } : null);
 
-  if (!last) {
-    const first = rule.after(dt, true);
-    return first ? fromWallClock(first, tz) : null;
-  }
+  if (!last) return result(rule.after(dt, true));
 
   const c = toWallClock(last.completedAt, tz);
 
@@ -224,8 +239,8 @@ function nextRecurringDue(chore: ScheduleChore, tz: string, last: ScheduleComple
         );
     const reOpts = { ...opts };
     delete reOpts.count;
-    const next = buildRule(reOpts, anchor).after(anchor, false);
-    return next ? fromWallClock(next, tz) : null;
+    const reRule = buildRule(reOpts, anchor);
+    return result(reRule.after(anchor, false), reRule);
   }
 
   // DUE_DATE anchor.
@@ -233,9 +248,23 @@ function nextRecurringDue(chore: ScheduleChore, tz: string, last: ScheduleComple
   if (!n) return null;
   const p = rule.before(c, true);
   const early = !p || c.getTime() >= p.getTime() + (n.getTime() - p.getTime()) / 2;
-  if (!early) return fromWallClock(n, tz);
-  const after = rule.after(n, false);
-  return after ? fromWallClock(after, tz) : null;
+  return result(early ? rule.after(n, false) : n);
+}
+
+/** Next due instant for a recurring chore after roll-forward, plus missed count; null if the series ended. */
+function nextRecurringDue(
+  chore: ScheduleChore,
+  tz: string,
+  last: ScheduleCompletion | null,
+  now: Date,
+): { due: Date; missed: number } | null {
+  const first = firstUnsatisfied(chore, tz, last);
+  if (!first) return null;
+  const nowWall = toWallClock(now, tz);
+  const latest = first.rule.before(nowWall, true);
+  if (!latest || latest <= first.wall) return { due: fromWallClock(first.wall, tz), missed: 0 };
+  const between = first.rule.between(first.wall, latest, true, (_d, i) => i <= MAX_MISSED);
+  return { due: fromWallClock(latest, tz), missed: Math.max(between.length - 1, 1) };
 }
 
 /**
@@ -278,9 +307,12 @@ export function computeSchedule<C extends ScheduleCompletion>(input: ScheduleInp
   const recurring = Boolean(chore.rrule);
 
   let nextDueAt: Date | null;
+  let missedCount = 0;
   if (recurring) {
-    nextDueAt = nextRecurringDue(chore, timezone, lastCompletion);
-    if (!nextDueAt) return finish("done", null);
+    const next = nextRecurringDue(chore, timezone, lastCompletion, now);
+    if (!next) return finish("done", null);
+    nextDueAt = next.due;
+    missedCount = next.missed;
   } else if (chore.startsAt) {
     if (lastCompletion) return finish("done", null);
     nextDueAt = chore.startsAt;
@@ -290,7 +322,7 @@ export function computeSchedule<C extends ScheduleCompletion>(input: ScheduleInp
 
   const overdueAt = new Date(nextDueAt.getTime() + chore.graceMinutes * MINUTE);
   const status: ScheduleStatus =
-    now < nextDueAt ? "upcoming" : now < overdueAt ? "due" : "overdue";
+    missedCount > 0 || now >= overdueAt ? "overdue" : now < nextDueAt ? "upcoming" : "due";
   return finish(status, nextDueAt, overdueAt);
 
   function finish(status: ScheduleStatus, next: Date | null, overdue: Date | null = null): Schedule<C> {
@@ -300,6 +332,7 @@ export function computeSchedule<C extends ScheduleCompletion>(input: ScheduleInp
       overdueAt: overdue,
       dueToday: next ? next <= now || sameLocalDay(next, now, timezone) : false,
       recurring,
+      missedCount,
       lastCompletion,
     };
   }

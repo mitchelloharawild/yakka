@@ -109,10 +109,36 @@ describe("computeSchedule: recurring, DUE_DATE anchor", () => {
     expect(s.nextDueAt).toEqual(at("2026-05-31T23:00:00Z"));
   });
 
-  it("stays on the earliest missed occurrence when never completed", () => {
+  it("rolls forward to the latest started occurrence when neglected", () => {
+    // Sat 20 June: occurrences on 1, 8 and 15 June have started; 15 June is current.
     const s = computeSchedule({ chore: weekly, timezone: SYD, lastCompletion: null, now: at("2026-06-20T00:00:00Z") });
     expect(s.status).toBe("overdue");
-    expect(s.nextDueAt).toEqual(at("2026-05-31T23:00:00Z"));
+    expect(s.nextDueAt).toEqual(at("2026-06-14T23:00:00Z"));
+    expect(s.missedCount).toBe(2);
+  });
+
+  it("is overdue when an occurrence was missed even within the current grace period", () => {
+    // Mon 8 June 09:30 local: 1 June missed, 8 June started 30 min ago (grace 60).
+    const s = computeSchedule({ chore: weekly, timezone: SYD, lastCompletion: null, now: at("2026-06-07T23:30:00Z") });
+    expect(s.nextDueAt).toEqual(at("2026-06-07T23:00:00Z"));
+    expect(s.missedCount).toBe(1);
+    expect(s.status).toBe("overdue");
+  });
+
+  it("rolls forward after an old completion", () => {
+    const s = computeSchedule({
+      chore: weekly,
+      timezone: SYD,
+      lastCompletion: done("2026-06-02T00:00:00Z"), // satisfies 1 June
+      now: at("2026-06-16T00:00:00Z"),
+    });
+    expect(s.nextDueAt).toEqual(at("2026-06-14T23:00:00Z"));
+    expect(s.missedCount).toBe(1);
+  });
+
+  it("has no missed occurrences when on time", () => {
+    const s = computeSchedule({ chore: weekly, timezone: SYD, lastCompletion: null, now: at("2026-05-31T23:30:00Z") });
+    expect(s).toMatchObject({ status: "due", missedCount: 0 });
   });
 
   it("late completion (first half of interval) satisfies the previous occurrence", () => {
@@ -235,28 +261,28 @@ describe("computeSchedule: recurring, COMPLETION anchor", () => {
   });
 
   it("counts from the completion date at DTSTART's time of day", () => {
-    const late = computeSchedule({ chore: every3, timezone: "UTC", lastCompletion: done("2026-06-10T20:00:00Z") });
+    const late = computeSchedule({ chore: every3, timezone: "UTC", lastCompletion: done("2026-06-10T20:00:00Z"), now: at("2026-06-10T20:00:00Z") });
     expect(late.nextDueAt).toEqual(at("2026-06-13T09:00:00Z"));
-    const earlyInDay = computeSchedule({ chore: every3, timezone: "UTC", lastCompletion: done("2026-06-10T07:00:00Z") });
+    const earlyInDay = computeSchedule({ chore: every3, timezone: "UTC", lastCompletion: done("2026-06-10T07:00:00Z"), now: at("2026-06-10T07:00:00Z") });
     expect(earlyInDay.nextDueAt).toEqual(at("2026-06-13T09:00:00Z"));
   });
 
   it("uses local dates in the group timezone", () => {
     const c = chore({ rrule: "FREQ=DAILY;INTERVAL=2", anchor: "COMPLETION", startsAt: at("2026-06-01T23:00:00Z") }); // 09:00 Sydney
     // 2026-06-10T15:00Z is 01:00 on 11 June in Sydney -> next 13 June 09:00 local.
-    const s = computeSchedule({ chore: c, timezone: SYD, lastCompletion: done("2026-06-10T15:00:00Z") });
+    const s = computeSchedule({ chore: c, timezone: SYD, lastCompletion: done("2026-06-10T15:00:00Z"), now: at("2026-06-10T15:00:00Z") });
     expect(s.nextDueAt).toEqual(at("2026-06-12T23:00:00Z"));
   });
 
   it("hourly rules count from the exact completion time", () => {
     const c = chore({ rrule: "FREQ=HOURLY;INTERVAL=4", anchor: "COMPLETION", startsAt: at("2026-06-01T00:00:00Z") });
-    const s = computeSchedule({ chore: c, timezone: SYD, lastCompletion: done("2026-06-10T10:17:00Z") });
+    const s = computeSchedule({ chore: c, timezone: SYD, lastCompletion: done("2026-06-10T10:17:00Z"), now: at("2026-06-10T10:17:00Z") });
     expect(s.nextDueAt).toEqual(at("2026-06-10T14:17:00Z"));
   });
 
   it("ignores COUNT once re-anchored", () => {
     const c = chore({ rrule: "FREQ=WEEKLY;COUNT=1", anchor: "COMPLETION", startsAt: at("2026-06-01T09:00:00Z") });
-    const s = computeSchedule({ chore: c, timezone: "UTC", lastCompletion: done("2026-06-03T09:00:00Z") });
+    const s = computeSchedule({ chore: c, timezone: "UTC", lastCompletion: done("2026-06-03T09:00:00Z"), now: at("2026-06-03T09:00:00Z") });
     expect(s.nextDueAt).toEqual(at("2026-06-10T09:00:00Z"));
   });
 });
@@ -292,5 +318,11 @@ describe("scheduleTransitions", () => {
         now: at("2026-06-02T10:00:00Z"),
       }),
     ).toEqual([]);
+  });
+
+  it("fires for each new occurrence of a neglected chore", () => {
+    const neglected = { ...base, lastCompletion: done("2026-05-20T09:00:00Z") };
+    const t = scheduleTransitions({ ...neglected, since: at("2026-06-05T08:55:00Z"), now: at("2026-06-05T09:00:00Z") });
+    expect(t).toEqual([{ kind: "due", dueAt: at("2026-06-05T09:00:00Z"), at: at("2026-06-05T09:00:00Z") }]);
   });
 });
