@@ -1,1 +1,116 @@
-{}
+{
+  "title": "Integrations",
+  "intro": "Connect Yakka to Home Assistant, iOS Shortcuts, smart buttons and anything else that speaks HTTP.",
+  "back": "Back to group",
+  "docsHint": "Full reference: docs/API.md in the Yakka repository.",
+  "pin": {
+    "label": "Settings PIN",
+    "help": "This group has a settings PIN. Enter it to make changes here.",
+    "placeholder": "PIN"
+  },
+  "errors": {
+    "PIN_REQUIRED": "Enter the settings PIN first.",
+    "PIN_INVALID": "That PIN is wrong.",
+    "URL_INVALID": "That isn't a valid URL.",
+    "URL_SCHEME_NOT_ALLOWED": "Only http:// and https:// URLs are allowed.",
+    "URL_CREDENTIALS_NOT_ALLOWED": "Don't put a username or password in the URL.",
+    "CHORE_ARCHIVED": "That chore is archived.",
+    "MEMBER_ARCHIVED": "That member is archived.",
+    "invalid": "Please check the form.",
+    "generic": "Something went wrong."
+  },
+  "common": {
+    "name": "Name",
+    "optional": "optional",
+    "create": "Create",
+    "creating": "Creating…",
+    "revoke": "Revoke",
+    "revoked": "Revoked",
+    "revokeConfirm": "Revoke “{name}”? Anything using it stops working immediately.",
+    "lastUsed": "Last used {when}",
+    "neverUsed": "Never used",
+    "created": "Created {when}",
+    "copy": "Copy",
+    "copied": "Copied",
+    "showOnce": "Copy it now: it won't be shown again.",
+    "done": "Done",
+    "loading": "Loading…",
+    "example": "Example",
+    "delete": "Delete",
+    "cancel": "Cancel",
+    "save": "Save"
+  },
+  "tokens": {
+    "title": "API tokens",
+    "description": "Bearer tokens for the REST API. A token can read and complete chores in this group only.",
+    "empty": "No API tokens yet.",
+    "namePlaceholder": "e.g. Home Assistant",
+    "new": "New token",
+    "createdTitle": "Token created",
+    "exampleTitle": "Complete a chore",
+    "showRevoked": "Show revoked ({count})"
+  },
+  "hooks": {
+    "title": "Inbound hooks",
+    "description": "A secret URL per chore. POST to it (any body) to tick the chore off — ideal for buttons, NFC automations and Shortcuts.",
+    "empty": "No hooks yet.",
+    "new": "New hook",
+    "chore": "Chore",
+    "chooseChore": "Choose a chore",
+    "defaultMember": "Record as",
+    "automation": "Automation (nobody)",
+    "noChores": "Add a chore first.",
+    "postOnly": "Only POST works: opening the URL in a browser does nothing, so link previews can't trigger it.",
+    "memberOverride": "Send {json} to record someone else.",
+    "recordedAs": "Records as {name}",
+    "archived": "Chore archived"
+  },
+  "webhooks": {
+    "title": "Outbound webhooks",
+    "description": "Yakka POSTs signed JSON to your URL when things happen.",
+    "empty": "No webhooks yet.",
+    "new": "New webhook",
+    "url": "URL",
+    "urlPlaceholder": "https://example.com/yakka",
+    "events": "Events",
+    "secret": "Signing secret",
+    "secretHelp": "Verify the X-Signature header with this secret (HMAC-SHA256 of \"timestamp.body\").",
+    "reveal": "Show secret",
+    "rotate": "Rotate secret",
+    "rotateConfirm": "Replace the signing secret? Receivers must be updated.",
+    "test": "Send test",
+    "testOk": "Test delivered (HTTP {status}, {ms} ms)",
+    "testFailed": "Test failed: {error}",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "autoDisabled": "Disabled after repeated failures. Fix the receiver, then re-enable.",
+    "enable": "Enable",
+    "disable": "Disable",
+    "deleteConfirm": "Delete this webhook and its delivery history?",
+    "failures": "{count, plural, one {# consecutive failure} other {# consecutive failures}}",
+    "lastDelivered": "Last delivered {when}",
+    "lastError": "Last error: {error}",
+    "recent": "Recent deliveries",
+    "noDeliveries": "No deliveries yet.",
+    "status": {
+      "delivered": "Delivered",
+      "failed": "Failed",
+      "pending": "Pending",
+      "retrying": "Retrying"
+    },
+    "attempts": "{count, plural, one {# attempt} other {# attempts}}",
+    "createdTitle": "Webhook created",
+    "eventNames": {
+      "completed": "Chore completed",
+      "undone": "Completion undone",
+      "due": "Chore due",
+      "overdue": "Chore overdue"
+    }
+  },
+  "push": {
+    "due": "Due now",
+    "overdue": "Overdue",
+    "dueAssigned": "Due now — {name}'s turn",
+    "overdueAssigned": "Overdue — {name}'s turn"
+  }
+}
