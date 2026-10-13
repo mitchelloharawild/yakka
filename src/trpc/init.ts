@@ -14,11 +14,17 @@ import type { Group } from "@/generated/prisma/client";
 import type { Actor } from "@/lib/activity";
 import { prisma } from "@/lib/db";
 import { DomainError } from "@/lib/errors";
+import { requestClientIp } from "@/lib/rate-limit";
 import { requireGroup } from "@/lib/services/groups";
 
-/** Build the per-request context. `headers` is empty for RSC calls. */
+/**
+ * Build the per-request context. `headers` is empty for RSC calls.
+ * `clientIp` follows RATE_LIMIT_IP_HEADER (src/lib/rate-limit.ts); it keys
+ * the settings-PIN attempt limiter.
+ */
 export async function createTRPCContext(opts: { headers?: Headers } = {}) {
-  return { db: prisma, headers: opts.headers ?? new Headers() };
+  const headers = opts.headers ?? new Headers();
+  return { db: prisma, headers, clientIp: requestClientIp(headers) };
 }
 
 /** Per-request context. */
@@ -34,6 +40,8 @@ const t = initTRPC.context<TRPCContext>().create({
         ...shape.data,
         /** Stable machine-readable reason from DomainError, e.g. "UNDO_WINDOW_EXPIRED". */
         reason: cause instanceof DomainError ? cause.reason : null,
+        /** Set with reason "PIN_LOCKED": seconds until another PIN attempt is accepted. */
+        retryAfterSeconds: cause instanceof DomainError ? (cause.retryAfterSeconds ?? null) : null,
         zodError: cause instanceof ZodError ? z.flattenError(cause) : null,
       },
     };

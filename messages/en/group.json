@@ -350,6 +350,7 @@
     "generic": "Something went wrong. Try again.",
     "PIN_REQUIRED": "Enter the settings PIN.",
     "PIN_INVALID": "Wrong PIN.",
+    "PIN_LOCKED": "Too many wrong PINs. Try again in {wait}.",
     "PIN_FORMAT": "A PIN is 4 to 8 digits.",
     "GROUP_DELETION_DISABLED": "Deleting groups is turned off on this server.",
     "CHORE_ARCHIVED": "That chore is archived.",

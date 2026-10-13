@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clientIp, SlidingWindowRateLimiter, type RateLimitRule } from "./rate-limit";
+import { clientIp, clientIpConfig, SlidingWindowRateLimiter, trpcProcedures, type RateLimitRule } from "./rate-limit";
 
 const rule: RateLimitRule = { name: "test", limit: 3, windowMs: 60_000 };
 const T0 = 1_800_000_000_000 - (1_800_000_000_000 % 60_000); // start of a window
@@ -52,6 +52,14 @@ describe("SlidingWindowRateLimiter", () => {
     expect(rl.hit(rule, "a", T0 + 3 * 60_000)).toMatchObject({ allowed: true, remaining: 2 });
   });
 
+  it("counts a request with a cost as several", () => {
+    const rl = new SlidingWindowRateLimiter();
+    const r = { name: "c", limit: 10, windowMs: 60_000 };
+    expect(rl.hit(r, "ip", T0, 8).allowed).toBe(true);
+    expect(rl.hit(r, "ip", T0, 3).allowed).toBe(false);
+    expect(rl.hit(r, "ip", T0, 2)).toMatchObject({ allowed: true, remaining: 0 });
+  });
+
   it("bounds memory", () => {
     const rl = new SlidingWindowRateLimiter(100);
     for (let i = 0; i < 1000; i++) rl.hit(rule, `ip${i}`, T0);
@@ -61,15 +69,48 @@ describe("SlidingWindowRateLimiter", () => {
 
 describe("clientIp", () => {
   const h = (init: Record<string, string>) => new Headers(init);
-  it("prefers x-real-ip", () => {
-    expect(clientIp(h({ "x-real-ip": "1.2.3.4", "x-forwarded-for": "5.6.7.8" }))).toBe("1.2.3.4");
+  it("reads only the configured header", () => {
+    const both = h({ "x-real-ip": "1.2.3.4", "x-forwarded-for": "5.6.7.8" });
+    // Default is x-forwarded-for: a client-sent X-Real-IP must not win.
+    expect(clientIp(both)).toBe("5.6.7.8");
+    expect(clientIp(both, { source: "x-real-ip" })).toBe("1.2.3.4");
+    expect(clientIp(h({ "cf-connecting-ip": "9.9.9.9", "x-forwarded-for": "5.6.7.8" }), { source: "cf-connecting-ip" })).toBe("9.9.9.9");
+    expect(clientIp(h({ "x-vercel-forwarded-for": "7.7.7.7" }), { source: "x-vercel-forwarded-for" })).toBe("7.7.7.7");
+    expect(clientIp(both, { source: "none" })).toBe("unknown");
   });
   it("takes the address appended by the trusted proxy from x-forwarded-for", () => {
     expect(clientIp(h({ "x-forwarded-for": "6.6.6.6, 1.2.3.4" }))).toBe("1.2.3.4");
-    expect(clientIp(h({ "x-forwarded-for": "6.6.6.6, 1.2.3.4, 10.0.0.1" }), 2)).toBe("1.2.3.4");
-    expect(clientIp(h({ "x-forwarded-for": "1.2.3.4" }), 5)).toBe("1.2.3.4");
+    expect(clientIp(h({ "x-forwarded-for": "6.6.6.6, 1.2.3.4, 10.0.0.1" }), { hops: 2 })).toBe("1.2.3.4");
+    expect(clientIp(h({ "x-forwarded-for": "1.2.3.4" }), { hops: 5 })).toBe("1.2.3.4");
   });
-  it("falls back to unknown", () => {
+  it("falls back to one shared key", () => {
     expect(clientIp(h({}))).toBe("unknown");
+    expect(clientIp(h({ "x-forwarded-for": "1.2.3.4" }), { source: "x-real-ip" })).toBe("unknown");
+  });
+});
+
+describe("clientIpConfig", () => {
+  it("defaults to x-forwarded-for, or Vercel's header on Vercel", () => {
+    expect(clientIpConfig({})).toEqual({ source: "x-forwarded-for", hops: 1 });
+    expect(clientIpConfig({ VERCEL: "1" })).toEqual({ source: "x-vercel-forwarded-for", hops: 1 });
+  });
+  it("reads RATE_LIMIT_IP_HEADER and RATE_LIMIT_PROXY_HOPS", () => {
+    expect(clientIpConfig({ RATE_LIMIT_IP_HEADER: "CF-Connecting-IP", RATE_LIMIT_PROXY_HOPS: "2" })).toEqual({
+      source: "cf-connecting-ip",
+      hops: 2,
+    });
+    expect(clientIpConfig({ RATE_LIMIT_IP_HEADER: "bogus", RATE_LIMIT_PROXY_HOPS: "-3" })).toEqual({
+      source: "x-forwarded-for",
+      hops: 1,
+    });
+  });
+});
+
+describe("trpcProcedures", () => {
+  it("splits batched paths, decoding escaped commas", () => {
+    expect(trpcProcedures("/api/trpc/tags.resolve")).toEqual(["tags.resolve"]);
+    expect(trpcProcedures("/api/trpc/groups.get,tags.complete,tags.undo")).toEqual(["groups.get", "tags.complete", "tags.undo"]);
+    expect(trpcProcedures("/api/trpc/groups.get%2Ctags.complete")).toEqual(["groups.get", "tags.complete"]);
+    expect(trpcProcedures("/t/abc")).toEqual([]);
   });
 });

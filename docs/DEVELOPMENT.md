@@ -93,6 +93,10 @@ its own types), `@prisma/adapter-pg`, `@prisma/adapter-better-sqlite3` +
   `src/lib/ids.ts`. Never use cuid for these.
 - Never send `Group.settingsPin` to a client. Wrap groups in
   `toPublicGroup()`, which replaces it with `hasSettingsPin`.
+- Check PINs only with `assertSettingsPin(group, pin, { client: ctx.clientIp })`.
+  It applies the in-memory attempt limiter (`src/lib/pin-limiter.ts`) and
+  throws `TOO_MANY_REQUESTS` / `PIN_LOCKED` with `retryAfterSeconds` (exposed
+  as `error.data.retryAfterSeconds`; `useErrorMessage()` formats it).
 - Nothing is hard-deleted from the UI. Groups are soft-deleted (`deletedAt`,
   purged by cron), and members and chores are archived (`archivedAt`).
   Completions are undone (`undoneAt`), never deleted.
@@ -321,6 +325,11 @@ any saved row that doesn't match. Push services answering
   plus `<HydrateClient>`, with `useSuspenseQuery` in the client component.
   Or use `const api = await caller()` for direct calls. Both must be used
   inside `<Suspense>` (see below).
+- Batches are capped at `TRPC_MAX_BATCH` (10, `src/trpc/limits.ts`) on both
+  the server (`maxBatchSize`) and the client (`maxItems`), and the proxy
+  counts every `tags.*` call in a batch against the tag rate limit.
+- `ctx.clientIp` is the client IP per `RATE_LIMIT_IP_HEADER`
+  (`requestClientIp()` in `src/lib/rate-limit.ts`; `"unknown"` for RSC calls).
 - HTTP: `/api/trpc/<path>`. To call it from curl:
   `GET /api/trpc/groups.get?input={"json":{"groupId":"…"}}` (URL-encoded).
 

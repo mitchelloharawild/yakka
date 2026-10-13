@@ -32,7 +32,7 @@ const id = z.string().min(1).max(64);
 const pinProcedure = groupProcedure
   .input(z.object({ pin: z.string().max(16).nullish() }))
   .use(async ({ ctx, input, next }) => {
-    await assertSettingsPin(ctx.group, input.pin);
+    await assertSettingsPin(ctx.group, input.pin, { client: ctx.clientIp });
     return next();
   });
 

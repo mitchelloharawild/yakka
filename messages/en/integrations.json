@@ -11,6 +11,7 @@
   "errors": {
     "PIN_REQUIRED": "Enter the settings PIN first.",
     "PIN_INVALID": "That PIN is wrong.",
+    "PIN_LOCKED": "Too many wrong PINs. Try again in {wait}.",
     "URL_INVALID": "That isn't a valid URL.",
     "URL_SCHEME_NOT_ALLOWED": "Only http:// and https:// URLs are allowed.",
     "URL_CREDENTIALS_NOT_ALLOWED": "Don't put a username or password in the URL.",

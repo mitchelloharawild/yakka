@@ -51,12 +51,24 @@ export function errorReason(e: unknown): string | null {
   return null;
 }
 
+/** `data.retryAfterSeconds` of a tRPC error (set with PIN_LOCKED), or null. */
+export function errorRetryAfter(e: unknown): number | null {
+  const data = (e as { data?: { retryAfterSeconds?: number | null } } | null)?.data;
+  return typeof data?.retryAfterSeconds === "number" ? data.retryAfterSeconds : null;
+}
+
+/** "45 s" / "3 min" for a lockout message. */
+export function formatWait(seconds: number): string {
+  return seconds < 90 ? `${Math.max(1, Math.round(seconds))} s` : `${Math.ceil(seconds / 60)} min`;
+}
+
 /** Translate a tRPC error into a user-facing message. */
 export function useErrorMessage() {
   const t = useTranslations("group.errors");
   return useCallback(
     (e: unknown) => {
       const reason = errorReason(e);
+      if (reason === "PIN_LOCKED") return t("PIN_LOCKED", { wait: formatWait(errorRetryAfter(e) ?? 60) });
       return reason && t.has(reason as never) ? t(reason as never) : t("generic");
     },
     [t],

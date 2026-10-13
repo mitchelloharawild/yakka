@@ -24,8 +24,9 @@ yakka.example.com {
 ```
 
 Set `BASE_URL=https://yakka.example.com` so tag and group links point at the
-public origin. The proxy should set `X-Real-IP` or append to
-`X-Forwarded-For`; rate limiting reads the client IP from those headers (see
+public origin. The proxy should append to `X-Forwarded-For` (Caddy, nginx
+with `proxy_add_x_forwarded_for` and Traefik do); rate limiting reads the
+client IP from it, or from the header named in `RATE_LIMIT_IP_HEADER` (see
 [Rate limiting](#rate-limiting)). On iOS, push notifications only work after
 "Add to Home Screen" (iOS 16.4+), and NFC/QR scans always open Safari rather
 than the installed app (ARCHITECTURE §3).
@@ -46,7 +47,8 @@ than the installed app (ARCHITECTURE §3).
 | `ANALYTICS_PROVIDER` | | See [Analytics](#analytics) |
 | `WEBHOOK_ALLOW_PRIVATE_NETWORKS` | `true`; **`false` on Vercel** | Outbound webhooks to LAN/loopback addresses. Set `false` on any instance strangers can use ([API.md](API.md#allowed-urls-ssrf)) |
 | `RATE_LIMIT_ENABLED` | `true` | |
-| `RATE_LIMIT_PROXY_HOPS` | `1` | Proxies that append to `X-Forwarded-For` |
+| `RATE_LIMIT_IP_HEADER` | `x-forwarded-for` (Vercel: `x-vercel-forwarded-for`) | Which header holds the client IP: `x-forwarded-for`, `x-real-ip`, `cf-connecting-ip`, `x-vercel-forwarded-for` or `none`. See [Rate limiting](#rate-limiting) |
+| `RATE_LIMIT_PROXY_HOPS` | `1` | With `x-forwarded-for`: trusted proxies that append to it |
 | `SKIP_MIGRATIONS` | `false` | Docker only: skip `prisma migrate deploy` on start |
 | `PORT` / `HOSTNAME` | `3000` / `0.0.0.0` | Docker only |
 
@@ -180,15 +182,46 @@ Trade-offs:
 | `/api/offline/*` | 30 / min |
 | `/api/v1/*` | 120 / min |
 
+Batched tRPC requests count once per `tags.*` procedure in the batch, and
+the tRPC endpoint refuses batches of more than 10 calls, so batching can't
+multiply the limit.
+
 When a client goes over, it gets `429` with `Retry-After` (and
 `RateLimit-Limit` / `RateLimit-Remaining`). The counters are **in memory, per
 process**. With N instances the effective limit is N times higher, and a
 restart resets them. That's enough to make guessing a 12-character tag token
 hopeless, but use a shared store if you need exact limits.
 
-The client IP comes from `X-Real-IP`, or else the `RATE_LIMIT_PROXY_HOPS`-th
-address from the right of `X-Forwarded-For`. Without a reverse proxy, clients
-can forge these headers, which is one more reason to deploy behind one.
+### Settings PIN attempts
+
+Wrong settings PINs (group settings, Integrations, tag management) are limited
+separately, per group: after **5 wrong PINs from one client** that client is
+locked out of the group's PIN for 30 s, doubling with each further wrong PIN;
+after **20 wrong PINs from all clients together** the whole group's PIN is
+locked for 1 min, doubling likewise (both capped at 1 h, and forgotten after
+6 h without failures). While locked, the API answers `TOO_MANY_REQUESTS` with
+reason `PIN_LOCKED` and `retryAfterSeconds`, without checking the PIN. The
+trade-off: someone hammering a group's PIN can keep its members out of the
+settings for a while. These counters are also in memory and per instance.
+
+### Where the client IP comes from
+
+Next.js 16 doesn't give the proxy the socket address (`NextRequest.ip` was
+removed in 15), so the client IP has to come from a header, and only from the
+one header your deployment controls. Set `RATE_LIMIT_IP_HEADER` to match:
+
+| Deployment | `RATE_LIMIT_IP_HEADER` | Notes |
+|---|---|---|
+| Behind Caddy, nginx, Traefik, a load balancer | `x-forwarded-for` (default) | Set `RATE_LIMIT_PROXY_HOPS` to the number of proxies that append to it. The `hops`-th address from the right is used, so a client-sent value is ignored |
+| Proxy that sets `X-Real-IP` (and overwrites a client-sent one) | `x-real-ip` | |
+| Behind Cloudflare | `cf-connecting-ip` | Only if the origin is reachable through Cloudflare alone |
+| Vercel | `x-vercel-forwarded-for` (default there) | Set by Vercel's edge |
+| No reverse proxy | `x-forwarded-for` | `next start` fills `X-Forwarded-For` with the socket address, but keeps one the client sent, which makes the limit easy to dodge. Fine on a LAN; put a proxy in front of anything public |
+| Can't trust any header | `none` | Every client shares one bucket |
+
+A request without the configured header counts against one shared
+`unknown` bucket. Never pick a header that clients can set and your proxy
+passes through unchanged.
 
 ## Analytics
 

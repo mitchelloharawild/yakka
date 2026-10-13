@@ -40,7 +40,13 @@ const MESSAGES: Record<string, string> = {
   METHOD_NOT_ALLOWED: "Method not allowed.",
 };
 
-const STATUS: Record<DomainError["code"], number> = { NOT_FOUND: 404, BAD_REQUEST: 400, FORBIDDEN: 403, CONFLICT: 409 };
+const STATUS: Record<DomainError["code"], number> = {
+  NOT_FOUND: 404,
+  BAD_REQUEST: 400,
+  FORBIDDEN: 403,
+  CONFLICT: 409,
+  TOO_MANY_REQUESTS: 429,
+};
 
 /** JSON response with no caching. */
 export function json(data: unknown, init: ResponseInit = {}): Response {

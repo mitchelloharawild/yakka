@@ -140,22 +140,27 @@ export const groupsRouter = createTRPCRouter({
   update: groupProcedure
     .input(z.object({ patch: updateGroupInput, pin: z.string().max(16).nullish() }))
     .mutation(async ({ ctx, input }) =>
-      toPublicGroup(await updateGroup(ctx.group.id, input.patch, { actor: ctx.actor, pin: input.pin })),
+      toPublicGroup(
+        await updateGroup(ctx.group.id, input.patch, { actor: ctx.actor, pin: input.pin, client: ctx.clientIp }),
+      ),
     ),
-  /** Check a settings PIN (throws FORBIDDEN PIN_INVALID / PIN_REQUIRED). */
+  /**
+   * Check a settings PIN (throws FORBIDDEN PIN_INVALID / PIN_REQUIRED, or
+   * TOO_MANY_REQUESTS PIN_LOCKED after repeated wrong PINs).
+   */
   verifyPin: groupProcedure
     .input(z.object({ pin: z.string().max(16) }))
     .mutation(async ({ ctx, input }) => {
-      await assertSettingsPin(ctx.group, input.pin);
+      await assertSettingsPin(ctx.group, input.pin, { client: ctx.clientIp });
       return true;
     }),
   setPin: groupProcedure
     .input(z.object({ currentPin: z.string().max(16).nullish(), newPin: z.string().max(16).nullable() }))
-    .mutation(async ({ ctx, input }) => toPublicGroup(await setSettingsPin(ctx.group.id, input, ctx.actor))),
+    .mutation(async ({ ctx, input }) => toPublicGroup(await setSettingsPin(ctx.group.id, input, ctx.actor, { client: ctx.clientIp }))),
   delete: groupProcedure
     .input(z.object({ pin: z.string().max(16).nullish() }))
     .mutation(async ({ ctx, input }) => {
-      await softDeleteGroup(ctx.group.id, { actor: ctx.actor, pin: input.pin });
+      await softDeleteGroup(ctx.group.id, { actor: ctx.actor, pin: input.pin, client: ctx.clientIp });
       return { ok: true as const };
     }),
   members: membersRouter,

@@ -15,6 +15,7 @@ import { createTRPCClient, httpBatchLink, loggerLink } from "@trpc/client";
 import { createTRPCContext } from "@trpc/tanstack-react-query";
 import { useState } from "react";
 import superjson from "superjson";
+import { TRPC_MAX_BATCH } from "@/trpc/limits";
 import { makeQueryClient } from "@/trpc/query-client";
 import type { AppRouter } from "@/trpc/routers/_app";
 
@@ -41,7 +42,7 @@ export function TRPCReactProvider({ children }: { children: React.ReactNode }) {
           enabled: (op) =>
             process.env.NODE_ENV === "development" && op.direction === "down" && op.result instanceof Error,
         }),
-        httpBatchLink({ url: getUrl(), transformer: superjson }),
+        httpBatchLink({ url: getUrl(), transformer: superjson, maxItems: TRPC_MAX_BATCH }),
       ],
     }),
   );

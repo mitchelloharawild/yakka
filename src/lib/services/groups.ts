@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import { DomainError, notFound } from "@/lib/errors";
 import { hashPin, newGroupId, verifyPin } from "@/lib/ids";
+import { pinLimiter } from "@/lib/pin-limiter";
 import { isValidTimezone } from "@/lib/schedule";
 
 /** zod: IANA timezone name. */
@@ -106,11 +107,11 @@ export async function createGroup(input: z.input<typeof createGroupInput>, actor
 export async function updateGroup(
   groupId: string,
   patch: z.input<typeof updateGroupInput>,
-  opts: { actor?: Actor; pin?: string | null } = {},
+  opts: { actor?: Actor; pin?: string | null; client?: string } = {},
 ) {
   const data = updateGroupInput.parse(patch);
   const group = await requireGroup(groupId);
-  await assertSettingsPin(group, opts.pin);
+  await assertSettingsPin(group, opts.pin, { client: opts.client });
   const changed = Object.keys(data).filter(
     (k) => data[k as keyof typeof data] !== undefined && data[k as keyof typeof data] !== group[k as keyof Group],
   );
@@ -122,11 +123,35 @@ export async function updateGroup(
   });
 }
 
-/** Throw unless `pin` matches the group's settings PIN (no-op when the group has no PIN). */
-export async function assertSettingsPin(group: Pick<Group, "settingsPin">, pin: string | null | undefined) {
+/** Who is trying a PIN, for the attempt limiter (src/lib/pin-limiter.ts). */
+export interface PinAttemptContext {
+  /** Client IP (tRPC ctx.clientIp). Missing = one shared "unknown" client. */
+  client?: string;
+  now?: number;
+}
+
+/**
+ * Throw unless `pin` matches the group's settings PIN (no-op when the group
+ * has no PIN). Wrong PINs are rate limited per group and per client:
+ * TOO_MANY_REQUESTS "PIN_LOCKED" (with retryAfterSeconds) while locked out.
+ */
+export async function assertSettingsPin(
+  group: Pick<Group, "id" | "settingsPin">,
+  pin: string | null | undefined,
+  attempt: PinAttemptContext = {},
+) {
   if (!group.settingsPin) return;
   if (!pin) throw new DomainError("FORBIDDEN", "PIN_REQUIRED");
-  if (!(await verifyPin(pin, group.settingsPin))) throw new DomainError("FORBIDDEN", "PIN_INVALID");
+  const client = attempt.client ?? "unknown";
+  const check = pinLimiter.check(group.id, client, attempt.now);
+  if (!check.allowed) {
+    throw new DomainError("TOO_MANY_REQUESTS", "PIN_LOCKED", "Too many wrong PINs", check.retryAfterSeconds);
+  }
+  if (!(await verifyPin(pin, group.settingsPin))) {
+    pinLimiter.fail(group.id, client, attempt.now);
+    throw new DomainError("FORBIDDEN", "PIN_INVALID");
+  }
+  pinLimiter.succeed(group.id, client);
 }
 
 /** Set (or clear with null) the settings PIN. Requires the current PIN if one is set. */
@@ -134,9 +159,10 @@ export async function setSettingsPin(
   groupId: string,
   input: { currentPin?: string | null; newPin: string | null },
   actor?: Actor,
+  attempt: PinAttemptContext = {},
 ) {
   const group = await requireGroup(groupId);
-  await assertSettingsPin(group, input.currentPin);
+  await assertSettingsPin(group, input.currentPin, attempt);
   if (input.newPin !== null && !/^\d{4,8}$/.test(input.newPin)) throw new DomainError("BAD_REQUEST", "PIN_FORMAT");
   const settingsPin = input.newPin === null ? null : await hashPin(input.newPin);
   return prisma.$transaction(async (tx) => {
@@ -147,10 +173,13 @@ export async function setSettingsPin(
 }
 
 /** Soft-delete a group (purged later by cron). FORBIDDEN when ENABLE_GROUP_DELETION is off. */
-export async function softDeleteGroup(groupId: string, opts: { actor?: Actor; pin?: string | null } = {}) {
+export async function softDeleteGroup(
+  groupId: string,
+  opts: { actor?: Actor; pin?: string | null; client?: string } = {},
+) {
   if (!env().ENABLE_GROUP_DELETION) throw new DomainError("FORBIDDEN", "GROUP_DELETION_DISABLED");
   const group = await requireGroup(groupId);
-  await assertSettingsPin(group, opts.pin);
+  await assertSettingsPin(group, opts.pin, { client: opts.client });
   return prisma.$transaction(async (tx) => {
     await logActivity(tx, { groupId, type: "group.deleted", actor: opts.actor });
     return tx.group.update({ where: { id: groupId }, data: { deletedAt: new Date() } });

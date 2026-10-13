@@ -25,6 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { errorRetryAfter, formatWait } from "@/components/group/group-context";
 import { getActor } from "@/lib/client/local-groups";
 
 /** Per-page context: group id and the settings PIN typed by the user (if any). */
@@ -57,7 +58,8 @@ export function useErrorToast() {
     const data = (err as { data?: { reason?: string | null; zodError?: { fieldErrors?: Record<string, string[]> } | null } })
       .data;
     const reason = data?.reason ?? Object.values(data?.zodError?.fieldErrors ?? {}).flat()[0];
-    if (reason && reason in KNOWN_ERRORS) toast.error(t(reason as keyof typeof KNOWN_ERRORS));
+    if (reason === "PIN_LOCKED") toast.error(t("PIN_LOCKED", { wait: formatWait(errorRetryAfter(err) ?? 60) }));
+    else if (reason && reason in KNOWN_ERRORS) toast.error(t(reason as keyof typeof KNOWN_ERRORS));
     else if (data?.zodError) toast.error(t("invalid"));
     else toast.error(reason ?? ((err as Error).message || t("generic")));
   };

@@ -5,24 +5,35 @@
  * Rate limits by client IP, to stop secret guessing (tag tokens, hook
  * secrets, API tokens) and floods. In-memory and per instance: see
  * src/lib/rate-limit.ts and docs/DEPLOYMENT.md. Disable with
- * RATE_LIMIT_ENABLED=false; set RATE_LIMIT_PROXY_HOPS to the number of
- * reverse proxies that append to X-Forwarded-For (default 1).
+ * RATE_LIMIT_ENABLED=false. The client IP comes from the one header named
+ * by RATE_LIMIT_IP_HEADER (default X-Forwarded-For, with
+ * RATE_LIMIT_PROXY_HOPS trusted proxies; Vercel: X-Vercel-Forwarded-For).
+ *
+ * Batched tRPC requests (`/api/trpc/a,b,c?batch=1`) count once per tag
+ * procedure in the batch, so batching can't multiply the tag limit; the tRPC
+ * route caps batches at TRPC_MAX_BATCH (src/trpc/limits.ts).
  */
 import { NextResponse, type NextRequest } from "next/server";
-import { clientIp, SlidingWindowRateLimiter, type RateLimitRule } from "@/lib/rate-limit";
+import {
+  clientIp,
+  clientIpConfig,
+  SlidingWindowRateLimiter,
+  trpcProcedures,
+  type RateLimitRule,
+} from "@/lib/rate-limit";
 
 const minute = 60_000;
 
-/** First matching rule wins. */
-const RULES: Array<{ match: (pathname: string) => boolean; rule: RateLimitRule }> = [
-  // Tag pages, and the tag-token tRPC procedures behind them (Agent B).
+/** First matching rule wins. `match` returns the request's cost (0 = no match). */
+const RULES: Array<{ match: (pathname: string) => number; rule: RateLimitRule }> = [
+  // Tag pages, and the tag-token tRPC procedures behind them (Agent B): one per procedure.
   {
-    match: (p) => p.startsWith("/t/") || (p.startsWith("/api/trpc/") && /(^|,)tags\./.test(p.slice(10))),
+    match: (p) => (p.startsWith("/t/") ? 1 : trpcProcedures(p).filter((x) => x.startsWith("tags.")).length),
     rule: { name: "tag", limit: 30, windowMs: minute },
   },
-  { match: (p) => p.startsWith("/api/hooks/"), rule: { name: "hooks", limit: 30, windowMs: minute } },
-  { match: (p) => p.startsWith("/api/offline/"), rule: { name: "offline", limit: 30, windowMs: minute } },
-  { match: (p) => p.startsWith("/api/v1/"), rule: { name: "api", limit: 120, windowMs: minute } },
+  { match: (p) => (p.startsWith("/api/hooks/") ? 1 : 0), rule: { name: "hooks", limit: 30, windowMs: minute } },
+  { match: (p) => (p.startsWith("/api/offline/") ? 1 : 0), rule: { name: "offline", limit: 30, windowMs: minute } },
+  { match: (p) => (p.startsWith("/api/v1/") ? 1 : 0), rule: { name: "api", limit: 120, windowMs: minute } },
 ];
 
 // One limiter per process; survives across requests (and HMR in dev).
@@ -36,11 +47,20 @@ function enabled(): boolean {
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const entry = enabled() ? RULES.find((r) => r.match(pathname)) : undefined;
+  let entry: (typeof RULES)[number] | undefined;
+  let cost = 0;
+  if (enabled()) {
+    for (const r of RULES) {
+      cost = r.match(pathname);
+      if (cost > 0) {
+        entry = r;
+        break;
+      }
+    }
+  }
   if (!entry) return NextResponse.next();
 
-  const hops = Number.parseInt(process.env.RATE_LIMIT_PROXY_HOPS ?? "1", 10) || 1;
-  const result = limiter.hit(entry.rule, clientIp(request.headers, hops));
+  const result = limiter.hit(entry.rule, clientIp(request.headers, clientIpConfig()), Date.now(), cost);
   const headers = {
     "RateLimit-Limit": String(result.limit),
     "RateLimit-Remaining": String(result.remaining),
