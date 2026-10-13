@@ -20,6 +20,7 @@ cp .env.example .env      # then adjust if needed
 docker compose up -d      # start Postgres
 npm install               # also generates the Prisma client
 npm run db:migrate        # create the database tables
+npm run db:seed           # optional: demo group (prints its URL)
 npm run dev               # http://localhost:3000
 ```
 
@@ -27,8 +28,11 @@ npm run dev               # http://localhost:3000
 
 - [Architecture](docs/ARCHITECTURE.md): data model, tap-to-complete flow,
   identity in the browser, API and webhooks, scheduling and deployment.
+- [Development](docs/DEVELOPMENT.md): code layout, conventions, ownership
+  and Next.js 16 gotchas.
 - [Naming](docs/NAMING.md): how the name was chosen.
 
 ## Stack
 
-Next.js (App Router), TypeScript, Tailwind CSS, Prisma with PostgreSQL.
+Next.js 16 (App Router, Cache Components), TypeScript, tRPC + TanStack Query,
+Tailwind CSS v4 + shadcn/ui, next-intl, Prisma 7 with PostgreSQL.
