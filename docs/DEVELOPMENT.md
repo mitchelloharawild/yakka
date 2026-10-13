@@ -109,6 +109,8 @@ its own types), `@prisma/adapter-pg`, `@prisma/adapter-better-sqlite3` +
 - Nothing is hard-deleted from the UI. Groups are soft-deleted (`deletedAt`,
   purged by cron), and members and chores are archived (`archivedAt`).
   Completions are undone (`undoneAt`), never deleted.
+- `SystemState` is a tiny instance-wide key/value table (`key`, `value`,
+  `updatedAt`); the cron job keeps its last tick time there.
 - `WebhookDelivery` is the outbound queue (see Events). `ChoreNotice` makes
   the due/overdue cron idempotent, through its unique key
   `(choreId, kind, dueAt)`.
@@ -265,8 +267,11 @@ emits `chore.due` and `chore.overdue`.
 - `cron.ts` exports **`runCronTick(opts?: { now?: Date; since?: Date }): Promise<CronTickResult>`**.
   Agent D calls it from node-cron every 5 minutes in Docker. It runs due/overdue
   detection (ChoreNotice), Web Push, ntfy/Apprise, webhook delivery and the
-  purge. `since` defaults to the previous in-process run, clamped to between
-  15 minutes and 6 hours ago. Overlap is harmless.
+  purge. `since` defaults to the last successful tick, stored in the
+  database (`SystemState` key `cron.lastTickAt`, written once detection has
+  finished), clamped to between 15 minutes and 24 hours ago. So a cold start
+  or an infrequent external scheduler doesn't miss transitions, and a first
+  run doesn't flood. Overlap is harmless.
 - REST and webhook payloads are documented in [API.md](API.md).
 
 ### Push payload

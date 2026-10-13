@@ -11,6 +11,13 @@
  *     (plus ntfy/Apprise if configured);
  *  2. delivers due outbound webhook rows (new events and retries);
  *  3. purges soft-deleted groups older than 30 days and old queue rows.
+ *
+ * The look-back window starts at the last successful tick, which is kept in
+ * the database (SystemState "cron.lastTickAt") so serverless cold starts and
+ * restarts don't lose it, clamped to [15 min, 24 h] ago: an infrequent
+ * external scheduler (or the Vercel Hobby plan's daily cron) still sees
+ * every transition, and a first run or a long outage doesn't flood people
+ * with day-old notices.
  */
 import { createTranslator } from "next-intl";
 import { Prisma } from "@/generated/prisma/client";
@@ -25,8 +32,10 @@ import messages from "../../../messages/en/integrations.json";
 
 /** Minimum look-back window: covers a 5-minute schedule with slack for late runs. */
 export const MIN_LOOKBACK_MS = 15 * 60_000;
-/** Maximum look-back window (after downtime we don't notify about day-old transitions). */
-export const MAX_LOOKBACK_MS = 6 * 60 * 60_000;
+/** Maximum look-back window (after downtime we don't notify about older transitions). */
+export const MAX_LOOKBACK_MS = 24 * 60 * 60_000;
+/** SystemState key holding the ISO time of the last successful tick. */
+export const LAST_TICK_KEY = "cron.lastTickAt";
 /** Soft-deleted groups are purged after this long. */
 export const PURGE_AFTER_MS = 30 * 24 * 60 * 60_000;
 /** Finished webhook deliveries are pruned after this long. */
@@ -49,6 +58,7 @@ export interface CronTickResult {
   durationMs: number;
 }
 
+/** Fallback when the database can't be read/written (same process only). */
 let lastRunAt: Date | undefined;
 
 const t = createTranslator({ locale: "en", messages: { integrations: messages }, namespace: "integrations.push" });
@@ -58,17 +68,18 @@ function isUniqueViolation(err: unknown) {
 }
 
 /**
- * Run all periodic jobs once. `since` defaults to the previous in-process run
- * (clamped to [15 min, 6 h] ago), so a missed tick is caught up and
- * overlapping windows are harmless.
+ * Run all periodic jobs once. `since` defaults to the previous successful
+ * run (persisted in SystemState), clamped to [15 min, 24 h] ago, so a missed
+ * tick is caught up and overlapping windows are harmless (ChoreNotice).
  */
 export async function runCronTick(opts: { now?: Date; since?: Date } = {}): Promise<CronTickResult> {
   const started = Date.now();
   const now = opts.now ?? new Date();
-  const since = opts.since ?? defaultSince(now);
-  lastRunAt = now;
+  const since = opts.since ?? lookbackSince(now, await readLastTick());
 
   const notices = await detectDueNotices({ since, now });
+  // Only a tick whose detection finished moves the window forward.
+  await writeLastTick(now);
   const deliveries = await processDueDeliveries({ now: new Date() });
   const purged = await purgeExpired(now);
 
@@ -82,10 +93,35 @@ export async function runCronTick(opts: { now?: Date; since?: Date } = {}): Prom
   };
 }
 
-function defaultSince(now: Date): Date {
-  const prev = lastRunAt?.getTime() ?? now.getTime();
+/** Start of the look-back window: the previous tick, clamped to [MIN_LOOKBACK_MS, MAX_LOOKBACK_MS] before `now`. */
+export function lookbackSince(now: Date, previous: Date | null | undefined): Date {
+  const prev = previous?.getTime() ?? now.getTime();
   const lookback = Math.min(Math.max(now.getTime() - prev, MIN_LOOKBACK_MS), MAX_LOOKBACK_MS);
   return new Date(now.getTime() - lookback);
+}
+
+async function readLastTick(): Promise<Date | undefined> {
+  try {
+    const row = await prisma.systemState.findUnique({ where: { key: LAST_TICK_KEY } });
+    const at = row ? new Date(row.value) : undefined;
+    return at && !Number.isNaN(at.getTime()) ? at : lastRunAt;
+  } catch (err) {
+    console.error("[cron] could not read the last tick time", err);
+    return lastRunAt;
+  }
+}
+
+async function writeLastTick(now: Date): Promise<void> {
+  lastRunAt = now;
+  try {
+    await prisma.systemState.upsert({
+      where: { key: LAST_TICK_KEY },
+      create: { key: LAST_TICK_KEY, value: now.toISOString() },
+      update: { value: now.toISOString() },
+    });
+  } catch (err) {
+    console.error("[cron] could not save the last tick time", err);
+  }
 }
 
 /** Step 1: due/overdue detection and notification. */

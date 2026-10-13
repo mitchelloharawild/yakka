@@ -299,3 +299,11 @@ model Activity {
 
   @@index([groupId, createdAt])
 }
+
+// Small instance-wide key/value store, e.g. "cron.lastTickAt" (ISO time of
+// the last successful cron tick, so a cold start knows how far to look back).
+model SystemState {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

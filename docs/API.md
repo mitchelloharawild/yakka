@@ -356,7 +356,10 @@ Redirects are never followed.
 `GET` or `POST /api/cron/tick` with `Authorization: Bearer $CRON_SECRET` runs
 the scheduled jobs:
 
-- Find chores that became due or overdue since the last run. Each due and
+- Find chores that became due or overdue since the last successful run (its
+  time is stored in the database; the window is at least 15 minutes and at
+  most 24 hours, so transitions older than a day are skipped after a long
+  outage). Each due and
   overdue moment is recorded once as a `ChoreNotice`, so overlapping runs never
   notify twice. For each new one, Yakka sends `chore.due` or `chore.overdue`
   webhooks and Web Push. The push goes to the assignee for fixed and

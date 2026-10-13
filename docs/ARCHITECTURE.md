@@ -46,6 +46,7 @@ InboundHook  id, groupId, choreId, secret, defaultMemberId?
 Webhook      id, groupId, url, secret, events[], failCount, disabledAt
 PushSub      id, memberId, deviceId, endpoint, keys
 Activity     audit log (like Spliit's Activity tab)
+SystemState  key, value (instance-wide, e.g. the cron job's last tick)
 ```
 
 Don't store the next due date. Work it out when a chore is read, from the `rrule`
