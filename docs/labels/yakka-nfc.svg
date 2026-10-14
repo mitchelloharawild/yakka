@@ -1,0 +1,85 @@
+<!--
+  Yakka tag label: NFC tap (Labelync template)
+
+  40 x 60 mm portrait label at 203 dpi (320 x 480 px), laid out like the
+  labels on Yakka's print sheet. Write the tag's link to an NFC sticker (up to 30 mm round) from Yakka
+  (Tags > Write NFC tag) and stick it behind the dashed circle.
+  Copy the link into "URL" too to print it in small type, or hide that field.
+  Everything prints in solid black for thermal printers.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="480" viewBox="0 0 320 480">
+  <rect width="320" height="480" fill="white"/>
+
+  <!-- Tap target: 34 mm circle to centre the NFC sticker behind -->
+  <circle cx="160" cy="156" r="134" fill="none" stroke="black" stroke-width="5" stroke-dasharray="16 10"/>
+  <g transform="translate(98 74) scale(4.5)" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8.32a7.43 7.43 0 0 1 0 7.36"/><path d="M9.46 6.21a11.76 11.76 0 0 1 0 11.58"/><path d="M12.91 4.1a15.91 15.91 0 0 1 .01 15.8"/><path d="M16.37 2a20.16 20.16 0 0 1 0 20"/></g>
+  <text x="160" y="222" font-size="22" font-weight="bold" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" fill="black">Tap phone here</text>
+
+  <!-- Chore title (add the chore's emoji in front if you like) -->
+  <text
+    id="chore"
+    x="160"
+    y="330"
+    font-size="26"
+    font-weight="bold"
+    text-anchor="middle"
+    font-family="Arial, Helvetica, sans-serif"
+    fill="black"
+    data-field-type="text"
+    data-label="Chore"
+    data-autosize-max-width="288">
+    Empty the dishwasher
+  </text>
+
+  <!-- Tag label, e.g. where the tag is stuck -->
+  <text
+    id="tag_label"
+    x="160"
+    y="356"
+    font-size="16"
+    text-anchor="middle"
+    font-family="Arial, Helvetica, sans-serif"
+    fill="black"
+    data-field-type="text"
+    data-label="Tag label"
+    data-autosize-max-width="288"
+    data-optional="true">
+    Kitchen
+  </text>
+
+  <!-- Scan / Tap badges -->
+  <rect x="119.0" y="368" width="82" height="28" rx="14" fill="none" stroke="black" stroke-width="2"/>
+  <g transform="translate(131.0 373) scale(0.75)" fill="none" stroke="black" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8.32a7.43 7.43 0 0 1 0 7.36"/><path d="M9.46 6.21a11.76 11.76 0 0 1 0 11.58"/><path d="M12.91 4.1a15.91 15.91 0 0 1 .01 15.8"/><path d="M16.37 2a20.16 20.16 0 0 1 0 20"/></g>
+  <text x="155.0" y="387.5" font-size="16" font-weight="bold" font-family="Arial, Helvetica, sans-serif" fill="black">Tap</text>
+
+  <!-- How to use it -->
+  <text
+    id="hint"
+    x="160"
+    y="424"
+    font-size="15"
+    text-anchor="middle"
+    font-family="Arial, Helvetica, sans-serif"
+    fill="black"
+    data-field-type="text"
+    data-label="Hint"
+    data-autosize-max-width="288">
+    Tap your phone here to tick off
+  </text>
+
+  <!-- Tag URL in small type -->
+  <text
+    id="url"
+    x="160"
+    y="456"
+    font-size="12"
+    text-anchor="middle"
+    font-family="Courier New, monospace"
+    fill="black"
+    data-field-type="text"
+    data-label="URL"
+    data-autosize-max-width="288"
+    data-optional="true">
+    https://yakka.nectric.com.au/t/k7mq2xrv9wtd
+  </text>
+</svg>
