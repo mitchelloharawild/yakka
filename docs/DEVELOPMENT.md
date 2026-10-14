@@ -164,20 +164,31 @@ The rules:
     extra completion and changes nothing.
   - Before the first occurrence: an early completion of it.
   This needs a little history, so pass `previousCompletions` (the
-  `SCHEDULE_HISTORY` = 3 non-undone completions before the last, newest
-  first) and `completeHistory` (true if there are no older ones).
+  `SCHEDULE_HISTORY` = 10 non-undone completions before the last, newest
+  first; DUE_DATE only looks at 3 of them) and `completeHistory` (true if
+  there are no older ones).
   `toChoreView()` and the cron job do. Without history, whether P was
   satisfied is unknown and the plain midpoint rule applies.
 - `anchor = COMPLETION`: the next due date is counted from the completion's
   local date, at DTSTART's time of day. For HOURLY rules and finer, it's
   counted from the exact completion time.
+- `anchor = ADAPTIVE` (an **adaptive schedule**): the interval is learnt from
+  the gaps between the last `ADAPTIVE_WINDOW` + 1 = 11 completions. With at
+  least `ADAPTIVE_MIN_GAPS` = 3 gaps, the chore is due at the last completion
+  plus the **median** gap and overdue at the last completion plus the **80th
+  percentile** gap (linear interpolation; `graceMinutes` is ignored). Until
+  then the `rrule`, if any, is a starting guess evaluated like the
+  COMPLETION anchor, with `graceMinutes`; with no `rrule` it's `unscheduled`
+  while it learns. A learnt chore never rolls forward (`missedCount` is 0).
+  `schedule.adaptive` reports `{ gaps, learned, dueAfterMs, overdueAfterMs }`
+  (null for other anchors).
 - A neglected recurring chore rolls forward: `nextDueAt` is the latest
   occurrence that has started, and `missedCount` says how many were skipped.
   A chore with missed occurrences is `overdue`. Missed occurrences are never
   owed: one completion catches the chore up.
 - One-off chore (`rrule` null, `startsAt` set): it's due at `startsAt`, then
   `done` after any completion. With both null, it's `unscheduled`.
-- `overdueAt = nextDueAt + graceMinutes`. With grace 0, a chore goes straight
+- `overdueAt = nextDueAt + graceMinutes` (except learnt ADAPTIVE chores). With grace 0, a chore goes straight
   from `upcoming` to `overdue`.
 
 Other helpers: `describeRRule` (English text), `upcomingOccurrences` (editor
@@ -185,7 +196,7 @@ preview), `toWallClock`/`fromWallClock`/`startOfLocalDay`/`sameLocalDay`,
 `isValidTimezone` and `compareSchedules`.
 
 **Cron:** `scheduleTransitions({ chore, timezone, lastCompletion, previousCompletions, completeHistory, since, now })`
-returns `[{ kind: "due"|"overdue", dueAt, at }]` for each threshold crossed in
+returns `[{ kind: "due"|"overdue", dueAt, overdueAt, at }]` for each threshold crossed in
 `(since, now]`. For each transition, insert a `ChoreNotice` (catch the unique
 violation) and only notify if the insert succeeded.
 

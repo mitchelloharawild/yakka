@@ -22,6 +22,17 @@ export function compactDuration(ms: number): { value: number; unit: CompactUnit 
   return { value: Math.floor(d / 7), unit: "week" };
 }
 
+/**
+ * A duration in the largest sensible unit, to one decimal place, e.g. 5.8
+ * days -> { value: 5.8, unit: "day" }. For "usually every …" text, where
+ * compactDuration()'s rounding down would mislead.
+ */
+export function approxDuration(ms: number): { value: number; unit: CompactUnit } {
+  const { unit } = compactDuration(ms);
+  const size = { minute: 60_000, hour: 3_600_000, day: 86_400_000, week: 604_800_000 }[unit];
+  return { value: Math.round((Math.abs(ms) / size) * 10) / 10, unit };
+}
+
 /** Format an instant as the value of an <input type="datetime-local"> in `tz`. */
 export function toLocalInputValue(instant: Date, tz: string): string {
   const w = toWallClock(instant, tz);

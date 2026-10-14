@@ -66,6 +66,7 @@ model Member {
 enum ScheduleAnchor {
   DUE_DATE // next due is counted from the scheduled date
   COMPLETION // next due is counted from the last completion
+  ADAPTIVE // interval learnt from the gaps between completions; rrule is only a starting guess
 }
 
 enum AssigneeMode {
@@ -94,7 +95,8 @@ model Chore {
   assigneeMode AssigneeMode   @default(ANYONE)
   // FIXED: the assignee. ROUND_ROBIN: who starts the rotation (optional).
   assigneeId   String?
-  // Minutes after the due time before the chore counts as overdue.
+  // Minutes after the due time before the chore counts as overdue. ADAPTIVE
+  // chores learn this too, and only use it while on their starting guess.
   graceMinutes Int            @default(0)
   sortOrder    Int            @default(0)
   createdAt    DateTime       @default(now())

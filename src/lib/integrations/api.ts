@@ -161,6 +161,7 @@ export function serializeChore(v: ChoreView) {
     overdueAt: iso(v.schedule.overdueAt),
     dueToday: v.schedule.dueToday,
     missedCount: v.schedule.missedCount,
+    adaptive: v.schedule.adaptive,
     lastCompletion: v.schedule.lastCompletion ? serializeCompletion(v.schedule.lastCompletion) : null,
   };
 }

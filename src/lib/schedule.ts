@@ -38,11 +38,20 @@
  *    chore was neglected), nextDueAt is the latest occurrence <= now and
  *    `missedCount` counts the skipped ones. Missed occurrences are never
  *    owed: one completion catches the chore up.
+ *  - Anchor ADAPTIVE ("adaptive schedule"): the interval is learnt from the
+ *    gaps between the latest ADAPTIVE_WINDOW + 1 completions. Once there
+ *    are at least ADAPTIVE_MIN_GAPS gaps, nextDueAt = C + the median gap and
+ *    overdueAt = C + the 80th percentile gap (graceMinutes is ignored).
+ *    Until then the rrule, if any, is a starting guess evaluated like the
+ *    COMPLETION anchor (with graceMinutes); without an rrule the chore is
+ *    "unscheduled" while it learns. There's no roll-forward: missedCount is
+ *    always 0 once learnt.
  *  - One-off chores (rrule null, startsAt set): due at startsAt until any
  *    completion, then "done".
  *  - rrule null and startsAt null: "unscheduled" (can be completed any time).
  *  - status: upcoming (now < nextDueAt), due (nextDueAt <= now < overdueAt),
- *    overdue (now >= overdueAt), where overdueAt = nextDueAt + graceMinutes.
+ *    overdue (now >= overdueAt), where overdueAt = nextDueAt + graceMinutes
+ *    (learnt ADAPTIVE chores: see above).
  *    With graceMinutes = 0 a chore goes straight from upcoming to overdue.
  *    A chore with missedCount > 0 is always overdue.
  */
@@ -50,7 +59,7 @@ import { TZDate } from "@date-fns/tz";
 import { Frequency, RRule, type Options } from "rrule";
 
 /** Mirrors the Prisma ScheduleAnchor enum (kept as a string union so this file stays DB-free). */
-export type ScheduleAnchorValue = "DUE_DATE" | "COMPLETION";
+export type ScheduleAnchorValue = "DUE_DATE" | "COMPLETION" | "ADAPTIVE";
 
 /** Computed status of a chore. */
 export type ScheduleStatus = "upcoming" | "due" | "overdue" | "done" | "unscheduled";
@@ -69,8 +78,19 @@ export interface ScheduleCompletion {
   completedAt: Date;
 }
 
+/** ADAPTIVE: how many of the most recent gaps between completions are learnt from. */
+export const ADAPTIVE_WINDOW = 10;
+/** ADAPTIVE: gaps needed before the learnt interval replaces the starting guess. */
+export const ADAPTIVE_MIN_GAPS = 3;
+/** ADAPTIVE: quantiles of the gaps at which a chore becomes due and overdue. */
+export const ADAPTIVE_DUE_QUANTILE = 0.5;
+export const ADAPTIVE_OVERDUE_QUANTILE = 0.8;
+
+/** DUE_DATE: how many completions before the latest one the fold looks at. */
+const DUE_DATE_HISTORY = 3;
+
 /** How many non-undone completions before the latest one callers should pass as `previousCompletions`. */
-export const SCHEDULE_HISTORY = 3;
+export const SCHEDULE_HISTORY = Math.max(DUE_DATE_HISTORY, ADAPTIVE_WINDOW);
 
 /** Input for computeSchedule(). */
 export interface ScheduleInput<C extends ScheduleCompletion = ScheduleCompletion> {
@@ -80,9 +100,10 @@ export interface ScheduleInput<C extends ScheduleCompletion = ScheduleCompletion
   /** The latest completion that has not been undone, or null. */
   lastCompletion: C | null;
   /**
-   * DUE_DATE anchor: the non-undone completions before `lastCompletion`,
-   * newest first (up to SCHEDULE_HISTORY). Used to tell a late completion
-   * of a missed occurrence from an early completion of the next one.
+   * The non-undone completions before `lastCompletion`, newest first (up
+   * to SCHEDULE_HISTORY). DUE_DATE uses them to tell a late completion of a
+   * missed occurrence from an early completion of the next one; ADAPTIVE
+   * learns its interval from them.
    */
   previousCompletions?: ScheduleCompletion[];
   /** True when there are no completions older than those given (e.g. fewer than requested came back). */
@@ -100,11 +121,25 @@ export interface Schedule<C extends ScheduleCompletion = ScheduleCompletion> {
   overdueAt: Date | null;
   /** Whether nextDueAt falls on today's local date (or earlier) in the group timezone. */
   dueToday: boolean;
-  /** Whether the chore has an RRULE. */
+  /** Whether the chore repeats (has an RRULE, or learns its interval). */
   recurring: boolean;
   /** Recurring only: occurrences that started and were skipped before nextDueAt (0 normally). */
   missedCount: number;
   lastCompletion: C | null;
+  /** ADAPTIVE anchor only (null otherwise): what has been learnt so far. */
+  adaptive: AdaptiveStats | null;
+}
+
+/** What an ADAPTIVE chore has learnt from its completion history. */
+export interface AdaptiveStats {
+  /** Gaps between completions learnt from (at most ADAPTIVE_WINDOW). */
+  gaps: number;
+  /** Whether there are enough gaps (ADAPTIVE_MIN_GAPS) for the learnt interval to apply. */
+  learned: boolean;
+  /** Median gap: the chore is due this long after the last completion. null until learned. */
+  dueAfterMs: number | null;
+  /** 80th percentile gap: overdue this long after the last completion. null until learned. */
+  overdueAfterMs: number | null;
 }
 
 const MINUTE = 60_000;
@@ -349,6 +384,41 @@ export function upcomingOccurrences(
 }
 
 // ---------------------------------------------------------------------------
+// Adaptive schedule
+// ---------------------------------------------------------------------------
+
+/** Quantile `p` (0..1) of ascending `sorted` values, linearly interpolated (R type 7). */
+export function quantile(sorted: readonly number[], p: number): number {
+  if (sorted.length === 0) throw new Error("quantile of an empty list");
+  const h = (sorted.length - 1) * p;
+  const lo = Math.floor(h);
+  const hi = Math.min(lo + 1, sorted.length - 1);
+  return sorted[lo] + (h - lo) * (sorted[hi] - sorted[lo]);
+}
+
+/** Learn an ADAPTIVE chore's interval from its latest completion and those before it. */
+export function adaptiveStats(last: ScheduleCompletion | null, previous: ScheduleCompletion[]): AdaptiveStats {
+  const none = { dueAfterMs: null, overdueAfterMs: null };
+  if (!last) return { gaps: 0, learned: false, ...none };
+  const times = [last, ...previous]
+    .map((c) => c.completedAt.getTime())
+    .filter((t) => t <= last.completedAt.getTime())
+    .sort((a, b) => b - a)
+    .slice(0, ADAPTIVE_WINDOW + 1);
+  const gaps = times
+    .slice(1)
+    .map((t, i) => times[i] - t)
+    .sort((a, b) => a - b);
+  if (gaps.length < ADAPTIVE_MIN_GAPS) return { gaps: gaps.length, learned: false, ...none };
+  return {
+    gaps: gaps.length,
+    learned: true,
+    dueAfterMs: Math.round(quantile(gaps, ADAPTIVE_DUE_QUANTILE)),
+    overdueAfterMs: Math.round(quantile(gaps, ADAPTIVE_OVERDUE_QUANTILE)),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -360,26 +430,37 @@ export function upcomingOccurrences(
 export function computeSchedule<C extends ScheduleCompletion>(input: ScheduleInput<C>): Schedule<C> {
   const { chore, timezone, lastCompletion } = input;
   const now = input.now ?? new Date();
-  const recurring = Boolean(chore.rrule);
+  const previous = input.previousCompletions ?? [];
+  const adaptive = chore.anchor === "ADAPTIVE" ? adaptiveStats(lastCompletion, previous) : null;
+  const recurring = Boolean(chore.rrule) || adaptive !== null;
 
   let nextDueAt: Date | null;
+  let overdueAt: Date;
   let missedCount = 0;
-  if (recurring) {
-    const next = nextRecurringDue(chore, timezone, lastCompletion, now, {
-      previous: input.previousCompletions ?? [],
-      complete: input.completeHistory ?? false,
+  if (adaptive?.learned && lastCompletion) {
+    nextDueAt = new Date(lastCompletion.completedAt.getTime() + adaptive.dueAfterMs!);
+    overdueAt = new Date(lastCompletion.completedAt.getTime() + adaptive.overdueAfterMs!);
+  } else if (chore.rrule) {
+    // Until an ADAPTIVE chore has learnt, its rrule is a guess counted from the last completion.
+    const ruleChore: ScheduleChore = adaptive ? { ...chore, anchor: "COMPLETION" } : chore;
+    const next = nextRecurringDue(ruleChore, timezone, lastCompletion, now, {
+      previous: previous.slice(0, DUE_DATE_HISTORY),
+      complete: (input.completeHistory ?? false) && previous.length <= DUE_DATE_HISTORY,
     });
     if (!next) return finish("done", null);
     nextDueAt = next.due;
     missedCount = next.missed;
+    overdueAt = new Date(nextDueAt.getTime() + chore.graceMinutes * MINUTE);
+  } else if (adaptive) {
+    return finish("unscheduled", null);
   } else if (chore.startsAt) {
     if (lastCompletion) return finish("done", null);
     nextDueAt = chore.startsAt;
+    overdueAt = new Date(nextDueAt.getTime() + chore.graceMinutes * MINUTE);
   } else {
     return finish("unscheduled", null);
   }
 
-  const overdueAt = new Date(nextDueAt.getTime() + chore.graceMinutes * MINUTE);
   const status: ScheduleStatus =
     missedCount > 0 || now >= overdueAt ? "overdue" : now < nextDueAt ? "upcoming" : "due";
   return finish(status, nextDueAt, overdueAt);
@@ -393,6 +474,7 @@ export function computeSchedule<C extends ScheduleCompletion>(input: ScheduleInp
       recurring,
       missedCount,
       lastCompletion,
+      adaptive,
     };
   }
 }
@@ -413,6 +495,8 @@ export interface ScheduleTransition {
   kind: "due" | "overdue";
   /** The occurrence's due time (schedule.nextDueAt). Use as ChoreNotice.dueAt. */
   dueAt: Date;
+  /** When the occurrence becomes overdue (schedule.overdueAt). */
+  overdueAt: Date;
   /** When the threshold was crossed (dueAt, or overdueAt for "overdue"). */
   at: Date;
 }
@@ -422,7 +506,8 @@ export interface ScheduleTransition {
  * run every few minutes with `since` = last run (or now - a few hours), then
  * insert a ChoreNotice per transition (unique on choreId+kind+dueAt) and only
  * notify when the insert succeeded, which makes the job idempotent. A chore
- * with graceMinutes = 0 yields both "due" and "overdue" at the same instant.
+ * whose overdueAt equals its nextDueAt (e.g. graceMinutes = 0) yields both
+ * "due" and "overdue" at the same instant.
  */
 export function scheduleTransitions(
   input: ScheduleInput & { since: Date },
@@ -431,9 +516,9 @@ export function scheduleTransitions(
   const s = computeSchedule({ ...input, now });
   const out: ScheduleTransition[] = [];
   if (!s.nextDueAt || !s.overdueAt) return out;
-  if (s.nextDueAt > input.since && s.nextDueAt <= now) out.push({ kind: "due", dueAt: s.nextDueAt, at: s.nextDueAt });
-  if (s.overdueAt > input.since && s.overdueAt <= now)
-    out.push({ kind: "overdue", dueAt: s.nextDueAt, at: s.overdueAt });
+  const base = { dueAt: s.nextDueAt, overdueAt: s.overdueAt };
+  if (s.nextDueAt > input.since && s.nextDueAt <= now) out.push({ kind: "due", ...base, at: s.nextDueAt });
+  if (s.overdueAt > input.since && s.overdueAt <= now) out.push({ kind: "overdue", ...base, at: s.overdueAt });
   return out;
 }
 

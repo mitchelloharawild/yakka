@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  adaptiveStats,
   computeSchedule,
   describeRRule,
   fromWallClock,
   normalizeRRule,
+  quantile,
+  SCHEDULE_HISTORY,
   scheduleTransitions,
   startOfLocalDay,
   toWallClock,
@@ -370,19 +373,108 @@ describe("computeSchedule: recurring, COMPLETION anchor", () => {
   });
 });
 
+describe("computeSchedule: ADAPTIVE anchor", () => {
+  const DAY = 24 * 3_600_000;
+  const learner = chore({ anchor: "ADAPTIVE", startsAt: at("2026-06-01T09:00:00Z"), graceMinutes: 60 });
+  // Completions newest first, `gaps` days apart going back from `last`.
+  const history = (last: string, gapsDays: number[]) => {
+    let t = at(last).getTime();
+    const out = [{ completedAt: new Date(t) }];
+    for (const g of gapsDays) out.push({ completedAt: new Date((t -= g * DAY)) });
+    return out;
+  };
+  const sched = (c: ScheduleChore, completions: { completedAt: Date }[], now: string) =>
+    computeSchedule({
+      chore: c,
+      timezone: "UTC",
+      lastCompletion: completions[0] ?? null,
+      previousCompletions: completions.slice(1),
+      now: at(now),
+    });
+
+  it("interpolates quantiles", () => {
+    expect(quantile([1, 2, 3, 4, 5], 0.5)).toBe(3);
+    expect(quantile([1, 2, 3, 4, 5], 0.8)).toBeCloseTo(4.2);
+    expect(quantile([7], 0.8)).toBe(7);
+  });
+
+  it("is due at the median gap and overdue at the 80th percentile", () => {
+    const h = history("2026-06-20T10:00:00Z", [3, 4, 5, 4, 9]); // sorted 3 4 4 5 9: median 4, p80 5.8
+    const s = sched(learner, h, "2026-06-21T00:00:00Z");
+    expect(s.adaptive).toEqual({ gaps: 5, learned: true, dueAfterMs: 4 * DAY, overdueAfterMs: 5.8 * DAY });
+    expect(s.nextDueAt).toEqual(at("2026-06-24T10:00:00Z"));
+    expect(s.overdueAt).toEqual(new Date(at("2026-06-20T10:00:00Z").getTime() + 5.8 * DAY));
+    expect(s.status).toBe("upcoming");
+    expect(s.recurring).toBe(true);
+    expect(sched(learner, h, "2026-06-25T00:00:00Z").status).toBe("due");
+    const late = sched(learner, h, "2026-06-30T00:00:00Z");
+    expect(late.status).toBe("overdue");
+    expect(late.missedCount).toBe(0);
+  });
+
+  it("learns only from the latest ADAPTIVE_WINDOW gaps", () => {
+    const h = history("2026-06-20T10:00:00Z", [...Array(10).fill(2), 30, 30, 30]);
+    expect(h.length - 1).toBeGreaterThan(SCHEDULE_HISTORY);
+    expect(adaptiveStats(h[0], h.slice(1))).toMatchObject({ gaps: 10, dueAfterMs: 2 * DAY, overdueAfterMs: 2 * DAY });
+  });
+
+  it("is unscheduled while learning without a starting rule", () => {
+    expect(sched(learner, [], "2026-06-21T00:00:00Z")).toMatchObject({
+      status: "unscheduled",
+      nextDueAt: null,
+      recurring: true,
+      adaptive: { gaps: 0, learned: false, dueAfterMs: null },
+    });
+    const two = sched(learner, history("2026-06-20T10:00:00Z", [3, 4]), "2026-06-21T00:00:00Z");
+    expect(two.status).toBe("unscheduled");
+    expect(two.adaptive).toMatchObject({ gaps: 2, learned: false });
+  });
+
+  it("uses the rule as a starting guess, counted from the last completion, until learnt", () => {
+    const guess = { ...learner, rrule: "FREQ=DAILY;INTERVAL=7" };
+    const s = sched(guess, history("2026-06-20T10:00:00Z", [3, 4]), "2026-06-21T00:00:00Z");
+    expect(s.nextDueAt).toEqual(at("2026-06-27T09:00:00Z"));
+    expect(s.overdueAt).toEqual(at("2026-06-27T10:00:00Z")); // graceMinutes applies to the guess
+    const learnt = sched(guess, history("2026-06-20T10:00:00Z", [3, 4, 3]), "2026-06-21T00:00:00Z");
+    expect(learnt.nextDueAt).toEqual(at("2026-06-23T10:00:00Z"));
+  });
+
+  it("ignores completions newer than lastCompletion", () => {
+    const h = history("2026-06-20T10:00:00Z", [2, 2, 2]);
+    expect(adaptiveStats(h[1], [h[0], ...h.slice(2)])).toMatchObject({ gaps: 2, learned: false });
+  });
+
+  it("emits transitions at the learnt thresholds", () => {
+    const h = history("2026-06-20T10:00:00Z", [4, 4, 4, 4, 4]);
+    const t = scheduleTransitions({
+      chore: learner,
+      timezone: "UTC",
+      lastCompletion: h[0],
+      previousCompletions: h.slice(1),
+      since: at("2026-06-24T09:55:00Z"),
+      now: at("2026-06-24T10:00:00Z"),
+    });
+    const due = at("2026-06-24T10:00:00Z");
+    expect(t).toEqual([
+      { kind: "due", dueAt: due, overdueAt: due, at: due },
+      { kind: "overdue", dueAt: due, overdueAt: due, at: due },
+    ]);
+  });
+});
+
 describe("scheduleTransitions", () => {
   const c = chore({ rrule: "FREQ=DAILY", startsAt: at("2026-06-01T09:00:00Z"), graceMinutes: 30 });
   const base = { chore: c, timezone: "UTC", lastCompletion: done("2026-06-01T09:10:00Z") };
 
   it("reports due when nextDueAt is in the window", () => {
     expect(scheduleTransitions({ ...base, since: at("2026-06-02T08:55:00Z"), now: at("2026-06-02T09:00:00Z") })).toEqual([
-      { kind: "due", dueAt: at("2026-06-02T09:00:00Z"), at: at("2026-06-02T09:00:00Z") },
+      { kind: "due", dueAt: at("2026-06-02T09:00:00Z"), overdueAt: at("2026-06-02T09:30:00Z"), at: at("2026-06-02T09:00:00Z") },
     ]);
   });
 
   it("reports overdue when overdueAt is in the window", () => {
     expect(scheduleTransitions({ ...base, since: at("2026-06-02T09:25:00Z"), now: at("2026-06-02T09:30:00Z") })).toEqual([
-      { kind: "overdue", dueAt: at("2026-06-02T09:00:00Z"), at: at("2026-06-02T09:30:00Z") },
+      { kind: "overdue", dueAt: at("2026-06-02T09:00:00Z"), overdueAt: at("2026-06-02T09:30:00Z"), at: at("2026-06-02T09:30:00Z") },
     ]);
   });
 
@@ -406,6 +498,8 @@ describe("scheduleTransitions", () => {
   it("fires for each new occurrence of a neglected chore", () => {
     const neglected = { ...base, lastCompletion: done("2026-05-20T09:00:00Z") };
     const t = scheduleTransitions({ ...neglected, since: at("2026-06-05T08:55:00Z"), now: at("2026-06-05T09:00:00Z") });
-    expect(t).toEqual([{ kind: "due", dueAt: at("2026-06-05T09:00:00Z"), at: at("2026-06-05T09:00:00Z") }]);
+    expect(t).toEqual([
+      { kind: "due", dueAt: at("2026-06-05T09:00:00Z"), overdueAt: at("2026-06-05T09:30:00Z"), at: at("2026-06-05T09:00:00Z") },
+    ]);
   });
 });

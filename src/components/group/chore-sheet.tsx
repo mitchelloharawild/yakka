@@ -2,7 +2,7 @@
 
 /** Bottom sheet to create or edit a chore, with its completion history. */
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArchiveIcon, ArchiveRestoreIcon, CheckIcon, Loader2Icon, Undo2Icon } from "lucide-react";
+import { ArchiveIcon, ArchiveRestoreIcon, CheckIcon, Loader2Icon, SparklesIcon, Undo2Icon } from "lucide-react";
 import { useFormatter, useNow, useTranslations } from "next-intl";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -25,6 +25,7 @@ import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { ADAPTIVE_MIN_GAPS } from "@/lib/schedule";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 import { StatusBadge, useDueText } from "./chore-card";
@@ -33,7 +34,7 @@ import { useActor, useErrorMessage, useGroup } from "./group-context";
 import { MemberAvatar } from "./member-avatar";
 import { ScheduleEditor, scheduleResult } from "./schedule-editor";
 import { parseRRule, type SchedulePreset } from "./schedule-presets";
-import { fromLocalInputValue, toLocalInputValue, weekdayIn } from "./time";
+import { approxDuration, fromLocalInputValue, toLocalInputValue, weekdayIn } from "./time";
 import { useChoreActions, type ChoreItem } from "./use-chore-actions";
 
 const GRACE_OPTIONS = [0, 30, 60, 120, 360, 720, 1440, 2880, 10080] as const;
@@ -235,10 +236,10 @@ function ChoreForm({ chore, onDone }: { chore: ChoreItem | null; onDone: () => v
           timezone={tz}
         />
 
-        {f.preset.kind !== "once" && (
+        {(f.preset.kind !== "once" || f.anchor === "ADAPTIVE") && (
           <fieldset className="flex flex-col gap-2">
             <legend className="mb-1.5 text-sm font-medium">{t("anchor")}</legend>
-            {(["DUE_DATE", "COMPLETION"] as const).map((a) => (
+            {(["DUE_DATE", "COMPLETION", "ADAPTIVE"] as const).map((a) => (
               <label
                 key={a}
                 className={cn(
@@ -254,12 +255,14 @@ function ChoreForm({ chore, onDone }: { chore: ChoreItem | null; onDone: () => v
                   onChange={() => set({ anchor: a, anchorTouched: true })}
                 />
                 <span className="flex flex-col">
-                  <span className="text-sm font-medium">
-                    {a === "DUE_DATE" ? t("anchorDueDate") : t("anchorCompletion")}
+                  <span className="flex items-center gap-1.5 text-sm font-medium">
+                    {t(`anchors.${a}`)}
+                    {a === "ADAPTIVE" && <SparklesIcon className="size-3.5 text-primary" aria-hidden />}
                   </span>
-                  <span className="text-xs text-muted-foreground">
-                    {a === "DUE_DATE" ? t("anchorDueDateHint") : t("anchorCompletionHint")}
-                  </span>
+                  <span className="text-xs text-muted-foreground">{t(`anchors.${a}Hint`)}</span>
+                  {a === "ADAPTIVE" && f.anchor === "ADAPTIVE" && chore?.anchor === "ADAPTIVE" && (
+                    <AdaptiveSummary chore={chore} />
+                  )}
                 </span>
               </label>
             ))}
@@ -316,7 +319,7 @@ function ChoreForm({ chore, onDone }: { chore: ChoreItem | null; onDone: () => v
 
         {(f.preset.kind !== "once" || f.startsAt) && (
           <div className="flex items-center gap-2">
-            <Label className="w-28 shrink-0">{t("grace")}</Label>
+            <Label className="w-28 shrink-0">{f.anchor === "ADAPTIVE" ? t("graceAdaptive") : t("grace")}</Label>
             <Select value={String(f.graceMinutes)} onValueChange={(v) => set({ graceMinutes: Number(v) })}>
               <SelectTrigger className="h-10 flex-1">
                 <SelectValue />
@@ -388,6 +391,25 @@ function ChoreForm({ chore, onDone }: { chore: ChoreItem | null; onDone: () => v
         </>
       )}
     </div>
+  );
+}
+
+/** What an adaptive chore has learnt so far, e.g. "Usually every 4 days, overdue after 6". */
+function AdaptiveSummary({ chore }: { chore: ChoreItem }) {
+  const t = useTranslations("group.editor");
+  const format = useFormatter();
+  const a = chore.schedule.adaptive;
+  if (!a) return null;
+  const duration = (ms: number) => {
+    const { value, unit } = approxDuration(ms);
+    return format.number(value, { style: "unit", unit, unitDisplay: "long", maximumFractionDigits: 1 });
+  };
+  return (
+    <span className="mt-1.5 text-xs font-medium text-foreground">
+      {a.learned && a.dueAfterMs !== null && a.overdueAfterMs !== null
+        ? t("adaptiveLearned", { due: duration(a.dueAfterMs), overdue: duration(a.overdueAfterMs), gaps: a.gaps })
+        : t("adaptiveLearning", { gaps: a.gaps, needed: ADAPTIVE_MIN_GAPS })}
+    </span>
   );
 }
 

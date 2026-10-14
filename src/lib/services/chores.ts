@@ -40,7 +40,7 @@ const choreFields = {
   /** RRULE body, e.g. "FREQ=WEEKLY;BYDAY=MO"; null/omitted = one-off or unscheduled. */
   rrule: rruleSchema.nullish(),
   startsAt: z.coerce.date().nullish(),
-  anchor: z.enum(["DUE_DATE", "COMPLETION"]).optional(),
+  anchor: z.enum(["DUE_DATE", "COMPLETION", "ADAPTIVE"]).optional(),
   assigneeMode: z.enum(["ANYONE", "FIXED", "ROUND_ROBIN"]).optional(),
   assigneeId: z.string().nullish(),
   graceMinutes: z.number().int().min(0).max(60 * 24 * 31).optional(),

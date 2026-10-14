@@ -153,10 +153,16 @@
     "preview": "Next: {dates}",
     "previewNone": "No upcoming dates",
     "anchor": "Next due date counts from",
-    "anchorDueDate": "The schedule",
-    "anchorDueDateHint": "Stays on its days even if done late (bins, bills).",
-    "anchorCompletion": "When it was done",
-    "anchorCompletionHint": "Every N days after the last time (watering, haircuts).",
+    "anchors": {
+      "DUE_DATE": "The schedule",
+      "DUE_DATEHint": "Stays on its days even if done late (bins, bills).",
+      "COMPLETION": "When it was done",
+      "COMPLETIONHint": "Every N days after the last time (watering, haircuts).",
+      "ADAPTIVE": "How often it's really done",
+      "ADAPTIVEHint": "Learns the rhythm from past completions and flags it overdue once it's later than 4 in 5 past gaps. Uses the schedule above as a first guess."
+    },
+    "adaptiveLearning": "Learning: {gaps, plural, one {# gap} other {# gaps}} between completions so far, needs {needed}.",
+    "adaptiveLearned": "Usually every {due}, overdue after {overdue} (from the last {gaps} gaps).",
     "assignee": "Who does it",
     "assigneeModes": {
       "ANYONE": "Anyone",
@@ -168,6 +174,7 @@
     "rotationAnyone": "First in the list",
     "pickMember": "Pick someone",
     "grace": "Overdue after",
+    "graceAdaptive": "Overdue after (first guess)",
     "graceOptions": {
       "0": "Straight away",
       "30": "30 minutes",

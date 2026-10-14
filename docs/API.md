@@ -121,6 +121,7 @@ urgent first. Add `?archived=true` to include archived chores.
       "rrule": "FREQ=DAILY", "startsAt": "…", "anchor": "DUE_DATE", "graceMinutes": 90,
       "assigneeMode": "ANYONE", "currentAssigneeId": null, "archived": false,
       "status": "overdue", "nextDueAt": "…", "overdueAt": "…", "dueToday": true, "missedCount": 0,
+      "adaptive": null,
       "lastCompletion": { "…": "completion object or null" }
     }
   ]
@@ -129,6 +130,13 @@ urgent first. Add `?archived=true` to include archived chores.
 
 `status` is one of `upcoming`, `due`, `overdue`, `done` (a one-off chore that has
 been completed) or `unscheduled`.
+
+`anchor` is `DUE_DATE`, `COMPLETION` or `ADAPTIVE`. An `ADAPTIVE` chore learns
+how often it's done: once it has 3 gaps between completions, it's due after
+the median of its last 10 gaps and overdue after the 80th percentile, and
+`adaptive` is `{ "gaps": 5, "learned": true, "dueAfterMs": …, "overdueAfterMs": … }`.
+Until then `rrule` (if set) is used as a starting guess. `adaptive` is `null`
+for other anchors.
 
 ### `GET /chores/{cid}`
 
@@ -240,8 +248,8 @@ access secret. Use the event `id` to deduplicate (retries resend the same
 { "message": "Test delivery from Yakka", "webhook": { "id", "name" } }
 ```
 
-A chore with a grace period of 0 sends `chore.due` and `chore.overdue` at the
-same moment.
+A chore with a grace period of 0 (or an adaptive chore whose gaps are all the
+same) sends `chore.due` and `chore.overdue` at the same moment.
 
 ### Verifying signatures
 

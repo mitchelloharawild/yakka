@@ -128,7 +128,10 @@ async function writeLastTick(now: Date): Promise<void> {
 export async function detectDueNotices(input: { since: Date; now: Date }) {
   const { since, now } = input;
   const out = { choresChecked: 0, notices: 0, events: 0, push: { sent: 0, failed: 0, removed: 0 } };
-  const scheduledChore = { archivedAt: null, OR: [{ rrule: { not: null } }, { startsAt: { not: null } }] };
+  const scheduledChore = {
+    archivedAt: null,
+    OR: [{ rrule: { not: null } }, { startsAt: { not: null } }, { anchor: "ADAPTIVE" as const }],
+  };
 
   let cursor: string | undefined;
   for (;;) {
@@ -199,13 +202,12 @@ export async function detectDueNotices(input: { since: Date; now: Date }) {
         const choreRef = { id: chore.id, title: chore.title, icon: chore.icon };
 
         for (const tr of fresh) {
-          const overdueAt = new Date(tr.dueAt.getTime() + chore.graceMinutes * 60_000);
           await emitEvent(tr.kind === "due" ? "chore.due" : "chore.overdue", {
             group,
             data: {
               chore: choreRef,
               dueAt: tr.dueAt.toISOString(),
-              overdueAt: overdueAt.toISOString(),
+              overdueAt: tr.overdueAt.toISOString(),
               assignee: assignee ? { id: assignee.id, name: assignee.name } : null,
             },
           });
@@ -213,8 +215,8 @@ export async function detectDueNotices(input: { since: Date; now: Date }) {
         }
 
         // One push per chore per run: with grace 0 "due" and "overdue" coincide.
-        const kind =
-          fresh.length > 1 ? (chore.graceMinutes === 0 ? "due" : "overdue") : fresh[0].kind;
+        const coincide = fresh[0].overdueAt.getTime() === fresh[0].dueAt.getTime();
+        const kind = fresh.length > 1 ? (coincide ? "due" : "overdue") : fresh[0].kind;
         const title = chore.icon && !/^[a-z0-9-]+$/i.test(chore.icon) ? `${chore.icon} ${chore.title}` : chore.title;
         const payload: PushPayload = {
           title,
