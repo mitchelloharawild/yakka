@@ -2,7 +2,7 @@
 
 # Yakka
 
-*Yakka* (from Yagara *yaga*, "work") is Australian slang for work, and hard yakka gets done together.
+*Yakka* (from the Yagara word *yaga*) is Australian slang for work, and hard yakka is shared.
 
 **Share the yakka.** An account-less household chore tracker. Chores are
 completed by scanning a QR code or NFC tag stuck where the job happens, or via
