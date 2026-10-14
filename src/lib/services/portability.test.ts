@@ -65,6 +65,7 @@ function rows() {
         title: "Bins",
         description: null,
         icon: "🗑️",
+        checklist: "Empty the kitchen bin\nWheel bins to the kerb",
         rrule: "FREQ=WEEKLY;BYDAY=MO",
         startsAt: at(2),
         anchor: "ADAPTIVE" as const,
@@ -141,7 +142,12 @@ describe("toGroupExport", () => {
     expect(doc.format).toBe(GROUP_EXPORT_FORMAT);
     expect(doc.group).toMatchObject({ name: "The Flat", timezone: "Australia/Melbourne", joinFromTag: false, undoSeconds: 15 });
     expect(doc.members.map((m) => m.createdAt)).toEqual([at(0), at(1)]);
-    expect(doc.chores[0]).toMatchObject({ anchor: "ADAPTIVE", assigneeMode: "ROUND_ROBIN", startsAt: at(2) });
+    expect(doc.chores[0]).toMatchObject({
+      anchor: "ADAPTIVE",
+      assigneeMode: "ROUND_ROBIN",
+      startsAt: at(2),
+      checklist: ["Empty the kitchen bin", "Wheel bins to the kerb"],
+    });
     expect(doc.completions[1]).toMatchObject({ undoneAt: at(10), note: "auto" });
   });
 });
@@ -188,6 +194,7 @@ describe("importGroup", () => {
     const [chore] = written("chore");
     expect(chore.assigneeId).toBe(members[1]);
     expect(chore.groupId).toBe(group.id);
+    expect(chore.checklist).toBe("Empty the kitchen bin\nWheel bins to the kerb");
 
     const [tag] = written("tag");
     expect(tag).toMatchObject({ token: "abcdefghjkmn", choreId: "chore-3", groupId: group.id });

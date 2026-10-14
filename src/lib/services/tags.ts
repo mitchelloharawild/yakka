@@ -277,6 +277,8 @@ export interface ResolvedTag {
   chore: {
     title: string;
     icon: string | null;
+    /** Sub-tasks shown on the tap page before it completes the chore ([] = none). */
+    checklist: string[];
     archived: boolean;
     status: string;
     nextDueAt: Date | null;
@@ -323,6 +325,7 @@ export async function resolveTag(input: { token: string; groupId?: string | null
     chore: {
       title: view.title,
       icon: view.icon,
+      checklist: view.checklist,
       archived: Boolean(view.archivedAt),
       status: view.schedule.status,
       nextDueAt: view.schedule.nextDueAt,

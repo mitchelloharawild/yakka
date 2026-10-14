@@ -23,6 +23,7 @@ import { logActivity, type Actor } from "@/lib/activity";
 import { prisma } from "@/lib/db";
 import { DomainError } from "@/lib/errors";
 import { isPlausibleTagToken, newGroupId, newTagToken } from "@/lib/ids";
+import { parseChecklist, serializeChecklist } from "@/lib/checklist";
 import { createChoreInput } from "@/lib/services/chores";
 import { colourSchema, memberNameSchema, requireGroup, timezoneSchema, updateGroupInput } from "@/lib/services/groups";
 
@@ -181,6 +182,7 @@ export function toGroupExport(rows: GroupRows, now = new Date()) {
       title: c.title,
       description: c.description,
       icon: c.icon,
+      checklist: parseChecklist(c.checklist),
       rrule: c.rrule,
       startsAt: c.startsAt,
       anchor: c.anchor,
@@ -269,9 +271,15 @@ export async function importGroup(input: unknown, actor?: Actor) {
 
       const choreIds = new Map<string, string>();
       for (const c of doc.chores) {
-        const { id: oldId, assigneeId, ...fields } = c;
+        const { id: oldId, assigneeId, checklist, ...fields } = c;
         const row = await tx.chore.create({
-          data: { ...fields, archivedAt: c.archivedAt ?? null, groupId: id, assigneeId: member(assigneeId) },
+          data: {
+            ...fields,
+            checklist: serializeChecklist(checklist ?? []),
+            archivedAt: c.archivedAt ?? null,
+            groupId: id,
+            assigneeId: member(assigneeId),
+          },
         });
         choreIds.set(oldId, row.id);
       }

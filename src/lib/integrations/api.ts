@@ -149,6 +149,7 @@ export function serializeChore(v: ChoreView) {
     title: v.title,
     description: v.description,
     icon: v.icon,
+    checklist: v.checklist,
     rrule: v.rrule,
     startsAt: iso(v.startsAt),
     anchor: v.anchor,

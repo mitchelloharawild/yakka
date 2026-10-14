@@ -98,6 +98,10 @@ model Chore {
   // Minutes after the due time before the chore counts as overdue. ADAPTIVE
   // chores learn this too, and only use it while on their starting guess.
   graceMinutes Int            @default(0)
+  // Optional checklist of sub-tasks, one per line (portable: no scalar lists).
+  // A tag scan shows it before completing the chore (ticking is optional).
+  // Use parseChecklist/serializeChecklist from src/lib/checklist.ts.
+  checklist    String?
   sortOrder    Int            @default(0)
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt

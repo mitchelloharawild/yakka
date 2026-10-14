@@ -7,6 +7,9 @@
  * Here, once the page is actually visible to a person (not prerendered,
  * not a background tab), we:
  *
+ *  0. if the chore has a checklist, show it first: nothing is recorded until
+ *     the person taps "Tick it off", ticked or not (ticks are kept
+ *     in sessionStorage so a reload mid-chore doesn't lose them), then
  *  1. match the tag's group fingerprint against the group ids this browser
  *     holds (src/lib/tags.ts), then
  *  2. identity known → POST tags.complete straight away;
@@ -19,7 +22,7 @@
  * group is NOT added to recents, because the tag never reveals the group id.
  */
 import { TRPCClientError } from "@trpc/client";
-import { Loader2, Undo2, WifiOff } from "lucide-react";
+import { Check, Loader2, Undo2, WifiOff } from "lucide-react";
 import Link from "next/link";
 import { useFormatter, useNow, useTranslations } from "next-intl";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -27,14 +30,17 @@ import { IdentityPicker } from "@/components/identity-picker";
 import { BigCheck } from "@/components/tag/big-check";
 import { resolveTagContext, setTagIdentity, type TagContext } from "@/components/tag/tag-identity";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { getDeviceId, setIdentity, touchGroup } from "@/lib/client/local-groups";
 import { isNetworkError } from "@/lib/client/network-error";
 import { enqueueCompletion } from "@/lib/client/offline-queue";
 import type { ResolvedTag, TagCompletionResult, TagMember } from "@/lib/services/tags";
+import { cn } from "@/lib/utils";
 import { useTRPCClient } from "@/trpc/client";
 
 type Phase =
   | { kind: "init" }
+  | { kind: "checklist" }
   | { kind: "completing" }
   | { kind: "pick"; members: TagMember[] | null; canCreate: boolean }
   | { kind: "needsLink" }
@@ -163,12 +169,18 @@ export function TagTap({ token, initial }: { token: string; initial: ResolvedTag
       if (cancelled || started.current) return;
       started.current = true;
       if (initial.chore.archived) setPhase({ kind: "error", reason: "CHORE_ARCHIVED", retry: false });
+      else if (initial.chore.checklist.length > 0) setPhase({ kind: "checklist" });
       else start();
     });
     return () => {
       cancelled = true;
     };
-  }, [initial.chore.archived, start]);
+  }, [initial.chore.archived, initial.chore.checklist.length, start]);
+
+  const finishChecklist = () => {
+    clearChecklistTicks(token);
+    start();
+  };
 
   const pick = (m: TagMember) => {
     const ctx = ctxRef.current;
@@ -225,6 +237,8 @@ export function TagTap({ token, initial }: { token: string; initial: ResolvedTag
           </p>
         </Centered>
       );
+    case "checklist":
+      return <ChecklistView token={token} items={initial.chore.checklist} onDone={finishChecklist} />;
     case "pick":
       return phase.members === null ? (
         <Centered>
@@ -335,6 +349,83 @@ function WhoAreYou({
         }}
         onCreate={onCreate}
       />
+    </div>
+  );
+}
+
+const ticksKey = (token: string) => `yakka:checklist:${token}`;
+
+/** Ticked items (by text, so an edited checklist doesn't tick the wrong ones). */
+function loadChecklistTicks(token: string): Set<string> {
+  try {
+    const raw = sessionStorage.getItem(ticksKey(token));
+    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveChecklistTicks(token: string, ticked: Set<string>) {
+  try {
+    sessionStorage.setItem(ticksKey(token), JSON.stringify([...ticked]));
+  } catch {
+    // Private mode or storage blocked: ticks just won't survive a reload.
+  }
+}
+
+function clearChecklistTicks(token: string) {
+  try {
+    sessionStorage.removeItem(ticksKey(token));
+  } catch {
+    // ignore
+  }
+}
+
+/** The chore's sub-tasks. Ticking is a guide only: "Tick it off" always works. */
+function ChecklistView({ token, items, onDone }: { token: string; items: string[]; onDone: () => void }) {
+  const t = useTranslations("tag.checklist");
+  const [ticked, setTicked] = useState<Set<string>>(() => loadChecklistTicks(token));
+  const count = items.filter((i) => ticked.has(i)).length;
+
+  const toggle = (item: string, on: boolean) => {
+    setTicked((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(item);
+      else next.delete(item);
+      saveChecklistTicks(token, next);
+      return next;
+    });
+  };
+
+  return (
+    <div className="flex w-full flex-col gap-4">
+      <div className="text-center">
+        <h2 className="font-heading text-2xl font-semibold">{t("title")}</h2>
+        <p className="mt-1 text-sm text-muted-foreground" role="status">
+          {t("progress", { done: count, total: items.length })}
+        </p>
+      </div>
+      <ul className="flex flex-col divide-y rounded-xl border">
+        {items.map((item, i) => {
+          const on = ticked.has(item);
+          const id = `checklist-${i}`;
+          return (
+            <li key={`${i}-${item}`}>
+              <label
+                htmlFor={id}
+                className="flex min-h-14 cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/50"
+              >
+                <Checkbox id={id} checked={on} onCheckedChange={(v) => toggle(item, v === true)} className="size-6" />
+                <span className={cn("text-base", on && "text-muted-foreground line-through")}>{item}</span>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+      <Button size="lg" className="h-14 text-lg" onClick={onDone}>
+        <Check aria-hidden />
+        {t("done")}
+      </Button>
     </div>
   );
 }

@@ -36,7 +36,8 @@ Group        id (nanoid, the secret), name, timezone,
              settings (joinFromTag, undoWindowSeconds, settingsPin?)
 Member       id, groupId, name, colour, archivedAt
 Chore        id, groupId, title, icon, rrule, anchor (due-date | completion-date | adaptive),
-             assigneeMode (anyone | fixed | round-robin), assigneeId?, graceMinutes
+             assigneeMode (anyone | fixed | round-robin), assigneeId?, graceMinutes,
+             checklist? (sub-tasks, one per line)
 Tag          id, token (separate short secret), groupId, choreId,
              qr, nfc (what the printed label offers), label, revokedAt
 Completion   id, choreId, memberId?, source (tag | manual | api | webhook),
@@ -61,8 +62,10 @@ same URL in a QR code).
 1. `/t/{token}` is a **page, never a GET with side effects**. Link previewers, the iOS
    QR preview and NFC readers that prefetch would otherwise complete chores by
    accident.
-2. The server works out the token's group and chore and renders a shell. Client JS
-   reads localStorage:
+2. The server works out the token's group and chore and renders a shell. If the chore
+   has a **checklist**, the page shows it first and records nothing until the person
+   taps "Tick it off" (ticking items is optional; ticks survive a reload via
+   sessionStorage). Then client JS reads localStorage:
    - **Identity known for this group:** send a POST to complete the chore immediately.
      Show a large ✓, the next due date, and **Undo** for about 10 s.
    - **No identity yet:** show "Who are you?" as member chips plus "I'm new". Save the

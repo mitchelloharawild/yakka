@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Chore, Completion, Member, Prisma } from "@/generated/prisma/client";
 import { logActivity, type Actor } from "@/lib/activity";
 import { currentAssigneeId } from "@/lib/assignee";
+import { checklistSchema, parseChecklist, serializeChecklist } from "@/lib/checklist";
 import { prisma, type Db } from "@/lib/db";
 import { DomainError, notFound } from "@/lib/errors";
 import { compareSchedules, computeSchedule, SCHEDULE_HISTORY, validateRRule, type Schedule } from "@/lib/schedule";
@@ -14,7 +15,9 @@ export type CompletionWithMember = Completion & { member: Pick<Member, "id" | "n
  * A chore plus everything computed on read. This is what lists and detail
  * views render; `schedule.lastCompletion` is the latest non-undone completion.
  */
-export type ChoreView = Chore & {
+export type ChoreView = Omit<Chore, "checklist"> & {
+  /** Sub-tasks shown before a tag scan completes the chore ([] = none). */
+  checklist: string[];
   schedule: Schedule<CompletionWithMember>;
   /** Whose turn it is (null = anyone). */
   currentAssigneeId: string | null;
@@ -37,6 +40,8 @@ const choreFields = {
   title: z.string().trim().min(1).max(100),
   description: z.string().trim().max(2000).nullish(),
   icon: z.string().trim().max(64).nullish(),
+  /** Sub-tasks shown on a tag scan; null/[] = no checklist. */
+  checklist: checklistSchema.nullish(),
   /** RRULE body, e.g. "FREQ=WEEKLY;BYDAY=MO"; null/omitted = one-off or unscheduled. */
   rrule: rruleSchema.nullish(),
   startsAt: z.coerce.date().nullish(),
@@ -83,6 +88,7 @@ export function toChoreView(
   });
   return {
     ...chore,
+    checklist: parseChecklist(chore.checklist),
     schedule,
     currentAssigneeId: currentAssigneeId({
       chore,
@@ -142,7 +148,9 @@ export async function createChore(groupId: string, input: z.input<typeof createC
   await requireGroup(groupId);
   await assertAssignee(groupId, data.assigneeId);
   const chore = await prisma.$transaction(async (tx) => {
-    const chore = await tx.chore.create({ data: { ...data, groupId } });
+    const chore = await tx.chore.create({
+      data: { ...data, checklist: serializeChecklist(data.checklist ?? []), groupId },
+    });
     await logActivity(tx, { groupId, type: "chore.created", actor, choreId: chore.id, data: { title: chore.title } });
     return chore;
   });
@@ -162,7 +170,13 @@ export async function updateChore(
   await assertAssignee(groupId, data.assigneeId);
   const changed = Object.keys(data).filter((k) => data[k as keyof typeof data] !== undefined);
   await prisma.$transaction(async (tx) => {
-    const chore = await tx.chore.update({ where: { id: choreId }, data });
+    const chore = await tx.chore.update({
+      where: { id: choreId },
+      data: {
+        ...data,
+        checklist: data.checklist === undefined ? undefined : serializeChecklist(data.checklist ?? []),
+      },
+    });
     await logActivity(tx, { groupId, type: "chore.updated", actor, choreId, data: { title: chore.title, changed } });
   });
   return getChoreView(choreId);

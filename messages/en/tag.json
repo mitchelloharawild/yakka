@@ -23,6 +23,11 @@
     "openGroup": "Open group",
     "groupLine": "{group}"
   },
+  "checklist": {
+    "title": "Before you tick it off",
+    "progress": "{done} of {total} done",
+    "done": "Tick it off"
+  },
   "who": {
     "title": "Who are you?",
     "subtitle": "One tap and it's ticked off. We'll remember you on this device.",

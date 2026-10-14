@@ -118,6 +118,7 @@ urgent first. Add `?archived=true` to include archived chores.
   "chores": [
     {
       "id": "cm…", "title": "Feed the cat", "description": null, "icon": "🐈",
+      "checklist": ["Rinse the bowl", "Top up the water"],
       "rrule": "FREQ=DAILY", "startsAt": "…", "anchor": "DUE_DATE", "graceMinutes": 90,
       "assigneeMode": "ANYONE", "currentAssigneeId": null, "archived": false,
       "status": "overdue", "nextDueAt": "…", "overdueAt": "…", "dueToday": true, "missedCount": 0,
@@ -127,6 +128,11 @@ urgent first. Add `?archived=true` to include archived chores.
   ]
 }
 ```
+
+`checklist` is the chore's optional list of sub-tasks (`[]` when it has none).
+Scanning the chore's tag shows the list before completing the chore (ticking
+items is optional). The API, inbound hooks and the app's "Done" button
+complete the chore directly without showing it.
 
 `status` is one of `upcoming`, `due`, `overdue`, `done` (a one-off chore that has
 been completed) or `unscheduled`.

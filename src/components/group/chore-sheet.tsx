@@ -2,7 +2,17 @@
 
 /** Bottom sheet to create or edit a chore, with its completion history. */
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArchiveIcon, ArchiveRestoreIcon, CheckIcon, Loader2Icon, SparklesIcon, Undo2Icon } from "lucide-react";
+import {
+  ArchiveIcon,
+  ArchiveRestoreIcon,
+  CheckIcon,
+  ListChecksIcon,
+  Loader2Icon,
+  PlusIcon,
+  SparklesIcon,
+  Undo2Icon,
+  XIcon,
+} from "lucide-react";
 import { useFormatter, useNow, useTranslations } from "next-intl";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -25,6 +35,7 @@ import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { CHECKLIST_ITEM_MAX, CHECKLIST_MAX_ITEMS } from "@/lib/checklist";
 import { ADAPTIVE_MIN_GAPS } from "@/lib/schedule";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
@@ -45,6 +56,7 @@ interface FormState {
   title: string;
   description: string;
   icon: string | null;
+  checklist: string[];
   preset: SchedulePreset;
   startsAt: string;
   anchor: Anchor;
@@ -60,6 +72,7 @@ function initialState(chore: ChoreItem | null, timezone: string): FormState {
       title: chore.title,
       description: chore.description ?? "",
       icon: chore.icon,
+      checklist: chore.checklist,
       preset: parseRRule(chore.rrule),
       startsAt: chore.startsAt ? toLocalInputValue(chore.startsAt, timezone) : "",
       anchor: chore.anchor,
@@ -76,6 +89,7 @@ function initialState(chore: ChoreItem | null, timezone: string): FormState {
     title: "",
     description: "",
     icon: null,
+    checklist: [],
     preset: { kind: "weekly", interval: 1, weekdays: [weekdayIn(now, timezone)] },
     startsAt: `${today}T09:00`,
     anchor: "DUE_DATE",
@@ -150,6 +164,7 @@ function ChoreForm({ chore, onDone }: { chore: ChoreItem | null; onDone: () => v
       title: f.title.trim(),
       description: f.description.trim() || null,
       icon: f.icon,
+      checklist: f.checklist.map((i) => i.trim()).filter(Boolean),
       rrule: sched.rrule,
       startsAt: fromLocalInputValue(f.startsAt, tz),
       anchor: f.anchor,
@@ -337,6 +352,8 @@ function ChoreForm({ chore, onDone }: { chore: ChoreItem | null; onDone: () => v
           </div>
         )}
 
+        <ChecklistEditor items={f.checklist} onChange={(checklist) => set({ checklist })} />
+
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="chore-description">{t("description")}</Label>
           <Textarea
@@ -389,6 +406,77 @@ function ChoreForm({ chore, onDone }: { chore: ChoreItem | null; onDone: () => v
             </AlertDialog>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+/** Optional sub-tasks; a tag scan shows them and completes the chore once all are ticked. */
+function ChecklistEditor({ items, onChange }: { items: string[]; onChange: (items: string[]) => void }) {
+  const t = useTranslations("group.editor");
+  const [draft, setDraft] = useState("");
+  const full = items.length >= CHECKLIST_MAX_ITEMS;
+
+  const add = () => {
+    const item = draft.trim();
+    if (!item || full) return;
+    onChange([...items, item]);
+    setDraft("");
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor="chore-checklist-new" className="flex items-center gap-1.5">
+        <ListChecksIcon className="size-4" aria-hidden />
+        {t("checklist")}
+      </Label>
+      <p className="text-xs text-muted-foreground">{t("checklistHint")}</p>
+      {items.length > 0 && (
+        <ol className="flex flex-col gap-1.5">
+          {items.map((item, i) => (
+            <li key={i} className="flex items-center gap-2">
+              <span className="w-5 shrink-0 text-right text-xs text-muted-foreground tabular-nums">{i + 1}.</span>
+              <Input
+                value={item}
+                onChange={(e) => onChange(items.map((x, j) => (j === i ? e.target.value : x)))}
+                maxLength={CHECKLIST_ITEM_MAX}
+                aria-label={t("checklistItem", { n: i + 1 })}
+                className="h-10"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => onChange(items.filter((_, j) => j !== i))}
+                aria-label={t("checklistRemove", { item })}
+              >
+                <XIcon />
+              </Button>
+            </li>
+          ))}
+        </ol>
+      )}
+      {!full && (
+        <div className="flex items-center gap-2">
+          <Input
+            id="chore-checklist-new"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter adds the item instead of submitting the form.
+              if (e.key === "Enter") {
+                e.preventDefault();
+                add();
+              }
+            }}
+            placeholder={items.length ? t("checklistPlaceholderMore") : t("checklistPlaceholder")}
+            maxLength={CHECKLIST_ITEM_MAX}
+            className="h-10"
+          />
+          <Button type="button" variant="outline" size="icon" onClick={add} disabled={!draft.trim()} aria-label={t("checklistAdd")}>
+            <PlusIcon />
+          </Button>
+        </div>
       )}
     </div>
   );
