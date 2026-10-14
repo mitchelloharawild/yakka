@@ -1,4 +1,8 @@
-# Yakka
+<p align="center">
+  <img src="public/icons/icon.svg" alt="Yakka logo" width="96" height="96">
+</p>
+
+<h1 align="center">Yakka</h1>
 
 **Share the yakka.** An account-less household chore tracker. Chores are
 completed by scanning a QR code or NFC tag stuck where the job happens, or via
@@ -8,6 +12,15 @@ Yakka is a simpler take on [DoneTick](https://github.com/donetick/donetick),
 built on the access model of [Spliit](https://github.com/spliit-app/spliit):
 no sign-up, groups are shared by link, and your identity in each group is
 remembered by your browser.
+
+<p align="center">
+  <img src="docs/images/chores-desktop.png" alt="Chore list on desktop, showing overdue, due and upcoming chores with whose turn it is" width="100%">
+</p>
+<p align="center">
+  <img src="docs/images/tag-phone.png" alt="Tag page on a phone after scanning a QR code: the chore is ticked off with an undo button" width="32%">
+  &nbsp;
+  <img src="docs/images/chores-phone-dark.png" alt="Chore list on a phone in dark mode" width="32%">
+</p>
 
 > Status: v1 works end to end: groups shared by link, recurring chores with
 > due/overdue status, tap-to-complete from QR codes and NFC tags (with undo),
@@ -60,3 +73,8 @@ docker run -d -p 3000:3000 -v yakka-data:/data ghcr.io/mitchelloharawild/yakka
 
 Next.js 16 (App Router, Cache Components), TypeScript, tRPC + TanStack Query,
 Tailwind CSS v4 + shadcn/ui, next-intl, Prisma 7 with PostgreSQL or SQLite, Serwist service worker.
+
+## Acknowledgements
+
+Yakka was coded with the help of
+[Claude Code](https://claude.com/claude-code), Anthropic's coding agent.
