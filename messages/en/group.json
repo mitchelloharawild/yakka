@@ -17,6 +17,17 @@
     "removed": "Removed {name} from this device",
     "unavailable": "Unavailable",
     "unnamed": "Untitled group",
+    "join": {
+      "label": "Got a link? Join a group",
+      "hint": "Opened Yakka from your home screen? Paste the group link someone sent you.",
+      "placeholder": "Paste a group link",
+      "paste": "Paste",
+      "submit": "Join",
+      "invalid": "That doesn't look like a Yakka group or tag link.",
+      "clipboardEmpty": "There's no link on your clipboard.",
+      "pasteFailed": "Couldn't read the clipboard. Press and hold the field, then tap Paste.",
+      "otherServer": "That link is from {host}, a different Yakka server. Opening it here instead; the group may not exist on this server."
+    },
     "features": {
       "tapTitle": "Tap to tick off",
       "tapBody": "QR codes and NFC tags complete a chore in one tap.",

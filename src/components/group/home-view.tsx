@@ -1,13 +1,26 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRightIcon, NfcIcon, PlusIcon, RepeatIcon, ShieldCheckIcon, StarIcon, XIcon } from "lucide-react";
+import {
+  ArrowRightIcon,
+  ChevronRightIcon,
+  ClipboardPasteIcon,
+  NfcIcon,
+  PlusIcon,
+  RepeatIcon,
+  ShieldCheckIcon,
+  StarIcon,
+  XIcon,
+} from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useNow, useTranslations, useFormatter } from "next-intl";
-import { useEffect } from "react";
+import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import { InstallPrompt } from "@/components/pwa/install-prompt";
 import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   importLocalData,
@@ -19,6 +32,7 @@ import {
   useLocalGroups,
   type LocalGroup,
 } from "@/lib/client/local-groups";
+import { parseJoinLink } from "@/lib/join-link";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 
@@ -41,6 +55,7 @@ export function HomeView() {
             </Link>
           </Button>
         </div>
+        <JoinGroupForm />
       </section>
 
       <section className="flex flex-col gap-3">
@@ -75,6 +90,102 @@ export function HomeView() {
         />
       </section>
     </div>
+  );
+}
+
+/**
+ * Paste-a-link field. An installed iOS PWA has no address bar and can't
+ * capture links (they open in Safari), so this is the only way in to an
+ * existing group from a fresh home-screen install.
+ */
+function JoinGroupForm() {
+  const t = useTranslations("group.home.join");
+  const router = useRouter();
+  const hydrated = useHydrated();
+  const id = useId();
+  const [value, setValue] = useState("");
+  const [invalid, setInvalid] = useState(false);
+  // Checked after hydration so the server render and first client render match.
+  const canPaste = hydrated && typeof navigator.clipboard?.readText === "function";
+
+  function join(text: string) {
+    const link = parseJoinLink(text);
+    if (!link) {
+      setInvalid(true);
+      return;
+    }
+    setInvalid(false);
+    if (link.host && link.host !== window.location.host) toast(t("otherServer", { host: link.host }));
+    // Transfer links (`?as=`) are read from window.location while the group
+    // shell first renders; a full load guarantees it's already updated.
+    if (link.transfer) window.location.assign(link.path);
+    else router.push(link.path);
+  }
+
+  async function paste() {
+    try {
+      const text = (await navigator.clipboard.readText()).trim();
+      if (!text) {
+        toast(t("clipboardEmpty"));
+        return;
+      }
+      setValue(text);
+      join(text);
+    } catch {
+      // Denied, or the user dismissed iOS's Paste bubble.
+      toast(t("pasteFailed"));
+    }
+  }
+
+  return (
+    <form
+      className="max-w-md"
+      onSubmit={(e) => {
+        e.preventDefault();
+        join(value);
+      }}
+    >
+      <Field data-invalid={invalid || undefined}>
+        <FieldLabel htmlFor={`${id}-link`}>{t("label")}</FieldLabel>
+        <InputGroup className="h-11">
+          <InputGroupInput
+            id={`${id}-link`}
+            type="text"
+            inputMode="url"
+            autoComplete="off"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="go"
+            placeholder={t("placeholder")}
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setInvalid(false);
+            }}
+            aria-invalid={invalid || undefined}
+            aria-describedby={`${id}-${invalid ? "error" : "hint"}`}
+            className="text-base"
+          />
+          <InputGroupAddon align="inline-end">
+            {canPaste && !value.trim() ? (
+              <InputGroupButton size="sm" onClick={paste}>
+                <ClipboardPasteIcon /> {t("paste")}
+              </InputGroupButton>
+            ) : (
+              <InputGroupButton type="submit" size="sm" variant="default" disabled={!value.trim()}>
+                {t("submit")} <ArrowRightIcon />
+              </InputGroupButton>
+            )}
+          </InputGroupAddon>
+        </InputGroup>
+        {invalid ? (
+          <FieldError id={`${id}-error`}>{t("invalid")}</FieldError>
+        ) : (
+          <FieldDescription id={`${id}-hint`}>{t("hint")}</FieldDescription>
+        )}
+      </Field>
+    </form>
   );
 }
 
