@@ -1,10 +1,10 @@
 /**
- * Tags (QR / NFC / URL) and the tap-to-complete flow. OWNED BY: Agent B.
+ * Tags (QR and/or NFC) and the tap-to-complete flow. OWNED BY: Agent B.
  *
  * Two kinds of callers:
  *
  *  - **Group-scoped** (the caller holds the group id = full access): list,
- *    create, revoke, rotate, relabel, QR codes.
+ *    create, revoke, rotate, update, QR codes, printable labels.
  *  - **Tag-scoped** (the caller holds only a tag token): resolve, complete,
  *    undo, createMember. A tag token can complete ITS OWN chore and nothing
  *    else. These functions never return the group id; see the fingerprint
@@ -13,7 +13,7 @@
  */
 import QRCode from "qrcode";
 import { z } from "zod";
-import type { Tag, TagKind } from "@/generated/prisma/client";
+import type { Tag } from "@/generated/prisma/client";
 import { logActivity, type Actor } from "@/lib/activity";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -56,8 +56,6 @@ function enforce(decision: TagDecision): void {
 
 /** zod: tag label. */
 export const tagLabelSchema = z.string().trim().max(60).nullish();
-/** zod: tag kind. */
-export const tagKindSchema = z.enum(["QR", "NFC", "URL"]);
 /** zod: a tag token (shape only). */
 export const tagTokenSchema = z.string().min(1).max(64);
 
@@ -95,7 +93,10 @@ async function requireGroupTag(groupId: string, tagId: string) {
 /** zod: input of createTag(). */
 export const createTagInput = z.object({
   choreId: z.string().min(1).max(64),
-  kind: tagKindSchema.default("QR"),
+  /** The printed label shows a QR code. */
+  qr: z.boolean().default(true),
+  /** The label marks an NFC tag (written with the same URL) to tap. */
+  nfc: z.boolean().default(false),
   label: tagLabelSchema,
 });
 
@@ -112,14 +113,14 @@ export async function createTag(
   if (chore.archivedAt) throw new DomainError("BAD_REQUEST", "CHORE_ARCHIVED");
   const tag = await prisma.$transaction(async (tx) => {
     const tag = await tx.tag.create({
-      data: { token: newTagToken(), groupId, choreId: chore.id, kind: data.kind, label: data.label || null },
+      data: { token: newTagToken(), groupId, choreId: chore.id, qr: data.qr, nfc: data.nfc, label: data.label || null },
     });
     await logActivity(tx, {
       groupId,
       type: "tag.created",
       actor,
       choreId: chore.id,
-      data: { tagId: tag.id, kind: tag.kind, label: tag.label, title: chore.title },
+      data: { tagId: tag.id, qr: tag.qr, nfc: tag.nfc, label: tag.label, title: chore.title },
     });
     return tag;
   });
@@ -146,7 +147,7 @@ export async function revokeTag(groupId: string, tagId: string, actor?: Actor): 
 
 /**
  * Rotate a tag after its code leaked: revoke it and create a replacement
- * with a new token for the same chore, kind and label. Returns the new tag
+ * with a new token for the same chore, capabilities and label. Returns the new tag
  * (the physical QR/NFC tag must be reprinted/rewritten).
  */
 export async function rotateTag(groupId: string, tagId: string, actor?: Actor): Promise<TagListItem> {
@@ -165,38 +166,57 @@ export async function rotateTag(groupId: string, tagId: string, actor?: Actor): 
       });
     }
     const tag = await tx.tag.create({
-      data: { token: newTagToken(), groupId, choreId: old.choreId, kind: old.kind, label: old.label },
+      data: { token: newTagToken(), groupId, choreId: old.choreId, qr: old.qr, nfc: old.nfc, label: old.label },
     });
     await logActivity(tx, {
       groupId,
       type: "tag.created",
       actor,
       choreId: old.choreId,
-      data: { tagId: tag.id, kind: tag.kind, label: tag.label, title: old.chore.title, rotatedFrom: old.id },
+      data: { tagId: tag.id, qr: tag.qr, nfc: tag.nfc, label: tag.label, title: old.chore.title, rotatedFrom: old.id },
     });
     return tag;
   });
   return { ...tag, chore: old.chore, url: tagUrl(tag.token) };
 }
 
-/** Change a tag's label (null/empty clears it). */
-export async function relabelTag(
+/** zod: input of updateTag(). Omitted fields are left as they are. */
+export const updateTagInput = z.object({
+  label: tagLabelSchema,
+  qr: z.boolean().optional(),
+  nfc: z.boolean().optional(),
+});
+
+/** Change a tag's label (null/empty clears it) and/or its QR / NFC capabilities. */
+export async function updateTag(
   groupId: string,
   tagId: string,
-  label: string | null | undefined,
+  input: z.input<typeof updateTagInput>,
   actor?: Actor,
 ): Promise<TagListItem> {
-  const next = tagLabelSchema.parse(label) || null;
+  const data = updateTagInput.parse(input);
   const tag = await requireGroupTag(groupId, tagId);
-  if (tag.label === next) return { ...tag, url: tagUrl(tag.token) };
+  const next = {
+    label: data.label === undefined ? tag.label : data.label || null,
+    qr: data.qr ?? tag.qr,
+    nfc: data.nfc ?? tag.nfc,
+  };
+  if (next.label === tag.label && next.qr === tag.qr && next.nfc === tag.nfc) return { ...tag, url: tagUrl(tag.token) };
   const updated = await prisma.$transaction(async (tx) => {
-    const updated = await tx.tag.update({ where: { id: tag.id }, data: { label: next } });
+    const updated = await tx.tag.update({ where: { id: tag.id }, data: next });
     await logActivity(tx, {
       groupId,
       type: "tag.updated",
       actor,
       choreId: tag.choreId,
-      data: { tagId: tag.id, from: tag.label, to: next, title: tag.chore.title },
+      data: {
+        tagId: tag.id,
+        from: tag.label,
+        to: next.label,
+        qr: next.qr,
+        nfc: next.nfc,
+        title: tag.chore.title,
+      },
     });
     return updated;
   });
@@ -210,11 +230,16 @@ export async function tagQr(groupId: string, tagId: string): Promise<{ url: stri
   return { url, svg: await qrSvg(url) };
 }
 
-/** Active tags of the group with QR SVGs, for the printable sheet. */
+/**
+ * Active tags of the group that have something to print (a QR code and/or
+ * NFC), with a QR SVG when the label shows one, for the printable sheet.
+ */
 export async function printableTags(groupId: string) {
   const tags = await listTags(groupId, { activeOnly: true });
   return Promise.all(
-    tags.filter((t) => !t.chore.archivedAt).map(async (t) => ({ ...t, svg: await qrSvg(t.url) })),
+    tags
+      .filter((t) => !t.chore.archivedAt && (t.qr || t.nfc))
+      .map(async (t) => ({ ...t, svg: t.qr ? await qrSvg(t.url) : null })),
   );
 }
 
@@ -248,7 +273,7 @@ export interface TagMember {
 
 /** What a tag page learns from its token. Deliberately has no group id. */
 export interface ResolvedTag {
-  tag: { label: string | null; kind: TagKind };
+  tag: { label: string | null; qr: boolean; nfc: boolean };
   chore: {
     title: string;
     icon: string | null;
@@ -294,7 +319,7 @@ export async function resolveTag(input: { token: string; groupId?: string | null
       : Promise.resolve(null),
   ]);
   return {
-    tag: { label: tag.label, kind: tag.kind },
+    tag: { label: tag.label, qr: tag.qr, nfc: tag.nfc },
     chore: {
       title: view.title,
       icon: view.icon,

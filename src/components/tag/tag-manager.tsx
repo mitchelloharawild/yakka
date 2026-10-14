@@ -2,7 +2,8 @@
 
 /**
  * Group-side tag management (/groups/{groupId}/tags): tags per chore,
- * create, copy link, QR code, write NFC, rename, replace (rotate), revoke.
+ * create (with QR / NFC toggles), copy link, QR code, write NFC, print label,
+ * edit, replace (rotate), revoke.
  */
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { TRPCClientError } from "@trpc/client";
@@ -57,12 +58,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Switch } from "@/components/ui/switch";
 import { getActor } from "@/lib/client/local-groups";
 import type { TagListItem } from "@/lib/services/tags";
 import { useTRPC } from "@/trpc/client";
 
-type Kind = "QR" | "NFC" | "URL";
+/** What a tag's label offers: a QR code, an NFC tag, both, or neither (just a link). */
+function capability(tag: { qr: boolean; nfc: boolean }): "QR" | "NFC" | "both" | "none" {
+  return tag.qr && tag.nfc ? "both" : tag.qr ? "QR" : tag.nfc ? "NFC" : "none";
+}
 
 function errorText(err: unknown, fallback: string): string {
   return err instanceof TRPCClientError ? err.message : fallback;
@@ -117,7 +121,7 @@ export function TagManager({ groupId }: { groupId: string }) {
               <p className="mt-1 max-w-prose text-sm text-muted-foreground">{t("subtitle")}</p>
             </div>
             <div className="flex gap-2">
-              {active.length > 0 && (
+              {active.some((tag) => (tag.qr || tag.nfc) && !tag.chore.archivedAt) && (
                 <Button asChild variant="outline">
                   <Link href={`/groups/${groupId}/tags/print`}>
                     <Printer aria-hidden />
@@ -219,7 +223,7 @@ function TagRow({ groupId, tag }: { groupId: string; tag: TagListItem }) {
   const invalidate = useInvalidateTags(groupId);
   const [qrOpen, setQrOpen] = useState(false);
   const [nfcOpen, setNfcOpen] = useState(false);
-  const [renaming, setRenaming] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [confirm, setConfirm] = useState<"rotate" | "revoke" | null>(null);
   const pin = useContext(PinContext);
   const onError = useTagErrorToast();
@@ -258,8 +262,20 @@ function TagRow({ groupId, tag }: { groupId: string; tag: TagListItem }) {
       <Card className="flex flex-row items-center gap-3 p-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">{tag.label || t(`kinds.${tag.kind as Kind}`)}</span>
-            <Badge variant="outline">{t(`kinds.${tag.kind as Kind}`)}</Badge>
+            <span className="font-medium">{tag.label || t(`caps.${capability(tag)}`)}</span>
+            {tag.qr && (
+              <Badge variant="outline">
+                <QrCode aria-hidden />
+                {t("caps.QR")}
+              </Badge>
+            )}
+            {tag.nfc && (
+              <Badge variant="outline">
+                <Nfc aria-hidden />
+                {t("caps.NFC")}
+              </Badge>
+            )}
+            {!tag.qr && !tag.nfc && <Badge variant="outline">{t("caps.none")}</Badge>}
             {isRevoked && <Badge variant="destructive">{t("revoked")}</Badge>}
           </div>
           <p className="truncate font-mono text-xs text-muted-foreground">{tag.url}</p>
@@ -269,31 +285,39 @@ function TagRow({ groupId, tag }: { groupId: string; tag: TagListItem }) {
         </div>
         {!isRevoked && (
           <div className="flex shrink-0 items-center gap-1">
-            <Button variant="ghost" size="icon" aria-label={t("showQr")} onClick={() => setQrOpen(true)}>
-              <QrCode aria-hidden />
-            </Button>
+            {(tag.qr || tag.nfc) && !tag.chore.archivedAt && (
+              <Button asChild variant="ghost" size="icon" aria-label={t("printLabel")}>
+                <Link href={`/groups/${groupId}/tags/print?tag=${tag.id}`}>
+                  <Printer aria-hidden />
+                </Link>
+              </Button>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" aria-label={t("more")}>
                   <MoreVertical aria-hidden />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent align="end" className="min-w-44">
                 <DropdownMenuItem onSelect={() => void copy()}>
                   <Copy aria-hidden />
                   {t("copy")}
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setQrOpen(true)}>
-                  <QrCode aria-hidden />
-                  {t("showQr")}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setNfcOpen(true)}>
-                  <Nfc aria-hidden />
-                  {t("writeNfc")}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setRenaming(true)}>
+                {tag.qr && (
+                  <DropdownMenuItem onSelect={() => setQrOpen(true)}>
+                    <QrCode aria-hidden />
+                    {t("showQr")}
+                  </DropdownMenuItem>
+                )}
+                {tag.nfc && (
+                  <DropdownMenuItem onSelect={() => setNfcOpen(true)}>
+                    <Nfc aria-hidden />
+                    {t("writeNfc")}
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onSelect={() => setEditing(true)}>
                   <Pencil aria-hidden />
-                  {t("relabel")}
+                  {t("edit")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => setConfirm("rotate")}>
@@ -312,7 +336,7 @@ function TagRow({ groupId, tag }: { groupId: string; tag: TagListItem }) {
 
       <QrDialog groupId={groupId} tag={tag} open={qrOpen} onOpenChange={setQrOpen} />
       <NfcWriteDialog url={tag.url} open={nfcOpen} onOpenChange={setNfcOpen} />
-      <RenameDialog groupId={groupId} tag={tag} open={renaming} onOpenChange={setRenaming} />
+      <EditTagDialog groupId={groupId} tag={tag} open={editing} onOpenChange={setEditing} />
       <AlertDialog open={confirm !== null} onOpenChange={(o) => !o && setConfirm(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -377,7 +401,46 @@ function QrDialog({
   );
 }
 
-function RenameDialog({
+/** The QR / NFC switches shared by the create and edit dialogs. */
+function CapabilityFields({
+  qr,
+  nfc,
+  onChange,
+}: {
+  qr: boolean;
+  nfc: boolean;
+  onChange: (next: { qr: boolean; nfc: boolean }) => void;
+}) {
+  const t = useTranslations("tag.manage");
+  return (
+    <fieldset className="flex flex-col gap-3">
+      <legend className="mb-2 text-sm font-medium">{t("capabilities")}</legend>
+      <label className="flex items-start justify-between gap-4">
+        <span className="flex gap-2">
+          <QrCode className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-sm font-medium">{t("qrToggle")}</span>
+            <span className="text-xs text-muted-foreground">{t("qrToggleHint")}</span>
+          </span>
+        </span>
+        <Switch checked={qr} onCheckedChange={(v) => onChange({ qr: v, nfc })} />
+      </label>
+      <label className="flex items-start justify-between gap-4">
+        <span className="flex gap-2">
+          <Nfc className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-sm font-medium">{t("nfcToggle")}</span>
+            <span className="text-xs text-muted-foreground">{t("nfcToggleHint")}</span>
+          </span>
+        </span>
+        <Switch checked={nfc} onCheckedChange={(v) => onChange({ qr, nfc: v })} />
+      </label>
+      {!qr && !nfc && <p className="text-xs text-muted-foreground">{t("noCapabilityHint")}</p>}
+    </fieldset>
+  );
+}
+
+function EditTagDialog({
   groupId,
   tag,
   open,
@@ -392,8 +455,9 @@ function RenameDialog({
   const trpc = useTRPC();
   const invalidate = useInvalidateTags(groupId);
   const [label, setLabel] = useState(tag.label ?? "");
-  const relabel = useMutation(
-    trpc.tags.relabel.mutationOptions({
+  const [caps, setCaps] = useState({ qr: tag.qr, nfc: tag.nfc });
+  const update = useMutation(
+    trpc.tags.update.mutationOptions({
       onSuccess: () => {
         void invalidate();
         onOpenChange(false);
@@ -405,7 +469,10 @@ function RenameDialog({
     <Dialog
       open={open}
       onOpenChange={(o) => {
-        if (o) setLabel(tag.label ?? "");
+        if (o) {
+          setLabel(tag.label ?? "");
+          setCaps({ qr: tag.qr, nfc: tag.nfc });
+        }
         onOpenChange(o);
       }}
     >
@@ -414,22 +481,33 @@ function RenameDialog({
           className="flex flex-col gap-4"
           onSubmit={(e) => {
             e.preventDefault();
-            relabel.mutate({ groupId, tagId: tag.id, label: label.trim() || null, actor: getActor(groupId) });
+            update.mutate({
+              groupId,
+              tagId: tag.id,
+              label: label.trim() || null,
+              ...caps,
+              actor: getActor(groupId),
+            });
           }}
         >
           <DialogHeader>
-            <DialogTitle>{t("relabelTitle")}</DialogTitle>
+            <DialogTitle>{t("editTitle")}</DialogTitle>
           </DialogHeader>
-          <Input
-            autoFocus
-            maxLength={60}
-            value={label}
-            placeholder={t("labelPlaceholder")}
-            onChange={(e) => setLabel(e.target.value)}
-          />
+          <div className="flex flex-col gap-2">
+            <Label htmlFor={`tag-label-${tag.id}`}>{t("label")}</Label>
+            <Input
+              id={`tag-label-${tag.id}`}
+              autoFocus
+              maxLength={60}
+              value={label}
+              placeholder={t("labelPlaceholder")}
+              onChange={(e) => setLabel(e.target.value)}
+            />
+          </div>
+          <CapabilityFields qr={caps.qr} nfc={caps.nfc} onChange={setCaps} />
           <DialogFooter>
-            <Button type="submit" disabled={relabel.isPending}>
-              {t("save")}
+            <Button type="submit" disabled={update.isPending}>
+              {t("saveChanges")}
             </Button>
           </DialogFooter>
         </form>
@@ -453,14 +531,14 @@ function CreateTagDialog({
   const trpc = useTRPC();
   const invalidate = useInvalidateTags(groupId);
   const [choreId, setChoreId] = useState("");
-  const [kind, setKind] = useState<Kind>("QR");
+  const [caps, setCaps] = useState({ qr: true, nfc: false });
   const [label, setLabel] = useState("");
   const pin = useContext(PinContext);
   const onError = useTagErrorToast();
 
   const reset = () => {
     setChoreId("");
-    setKind("QR");
+    setCaps({ qr: true, nfc: false });
     setLabel("");
   };
   const create = useMutation(
@@ -491,7 +569,7 @@ function CreateTagDialog({
             create.mutate({
               groupId,
               choreId,
-              kind,
+              ...caps,
               label: label.trim() || null,
               actor: getActor(groupId),
               pin: pin || null,
@@ -518,16 +596,6 @@ function CreateTagDialog({
             </Select>
           </div>
           <div className="flex flex-col gap-2">
-            <Label>{t("kind")}</Label>
-            <ToggleGroup type="single" variant="outline" value={kind} onValueChange={(v) => v && setKind(v as Kind)}>
-              {(["QR", "NFC", "URL"] as const).map((k) => (
-                <ToggleGroupItem key={k} value={k}>
-                  {t(`kinds.${k}`)}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-          </div>
-          <div className="flex flex-col gap-2">
             <Label htmlFor="tag-label">{t("label")}</Label>
             <Input
               id="tag-label"
@@ -537,6 +605,7 @@ function CreateTagDialog({
               onChange={(e) => setLabel(e.target.value)}
             />
           </div>
+          <CapabilityFields qr={caps.qr} nfc={caps.nfc} onChange={setCaps} />
           <DialogFooter>
             <Button type="submit" disabled={!choreId || create.isPending}>
               {create.isPending ? t("saving") : t("save")}

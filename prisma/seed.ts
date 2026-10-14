@@ -86,7 +86,7 @@ async function main() {
   });
 
   const tag = await prisma.tag.create({
-    data: { token: newTagToken(), groupId: group.id, choreId: bins.id, kind: "QR", label: "Bin cupboard" },
+    data: { token: newTagToken(), groupId: group.id, choreId: bins.id, qr: true, nfc: true, label: "Bin cupboard" },
   });
 
   const base = env().BASE_URL;

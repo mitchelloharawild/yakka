@@ -100,7 +100,7 @@ its own types), `@prisma/adapter-pg`, `@prisma/adapter-better-sqlite3` +
   test") and creating, replacing or revoking tags. Use
   `groupPinProcedure` from `@/trpc/init` (input `pin`). Everyday actions stay
   ungated on purpose: completing and undoing, adding, editing and archiving
-  members and chores, relabelling tags. Reads never return secrets: hook
+  members and chores, editing a tag's label or QR / NFC toggles. Reads never return secrets: hook
   URLs are listed masked (`maskedUrl`), webhook secrets as a hint.
 - Check PINs only with `assertSettingsPin(group, pin, { client: ctx.clientIp })`.
   It applies the in-memory attempt limiter (`src/lib/pin-limiter.ts`) and

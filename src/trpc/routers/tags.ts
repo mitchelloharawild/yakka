@@ -1,9 +1,9 @@
 /**
- * Tags (QR/NFC) and the tap-to-complete flow. OWNED BY: Agent B.
+ * Tags (QR and/or NFC) and the tap-to-complete flow. OWNED BY: Agent B.
  * Thin wrappers over src/lib/services/tags.ts.
  *
  *  - Group-scoped procedures (groupProcedure: the group id is the secret):
- *    list, relabel, qr; create, revoke and rotate also need the settings
+ *    list, update, qr; create, revoke and rotate also need the settings
  *    PIN when the group has one (groupPinProcedure), as they hand out or
  *    withdraw credentials.
  *  - Tag-scoped procedures (baseProcedure, token only): resolve, complete,
@@ -19,15 +19,15 @@ import {
   createTag,
   createTagInput,
   listTags,
-  relabelTag,
   resolveTag,
   revokeTag,
   rotateTag,
-  tagLabelSchema,
   tagQr,
   tagTokenSchema,
   undoViaTag,
   undoViaTagInput,
+  updateTag,
+  updateTagInput,
 } from "@/lib/services/tags";
 import { baseProcedure, createTRPCRouter, groupPinProcedure, groupProcedure } from "@/trpc/init";
 
@@ -42,18 +42,25 @@ export const tagsRouter = createTRPCRouter({
   create: groupPinProcedure
     .input(createTagInput)
     .mutation(({ ctx, input }) =>
-      createTag(ctx.group.id, { choreId: input.choreId, kind: input.kind, label: input.label }, ctx.actor),
+      createTag(
+        ctx.group.id,
+        { choreId: input.choreId, qr: input.qr, nfc: input.nfc, label: input.label },
+        ctx.actor,
+      ),
     ),
   revoke: groupPinProcedure
     .input(z.object({ tagId: id }))
     .mutation(({ ctx, input }) => revokeTag(ctx.group.id, input.tagId, ctx.actor)),
-  /** Revoke and replace with a new token (same chore, kind and label). Returns the new tag. */
+  /** Revoke and replace with a new token (same chore, capabilities and label). Returns the new tag. */
   rotate: groupPinProcedure
     .input(z.object({ tagId: id }))
     .mutation(({ ctx, input }) => rotateTag(ctx.group.id, input.tagId, ctx.actor)),
-  relabel: groupProcedure
-    .input(z.object({ tagId: id, label: tagLabelSchema }))
-    .mutation(({ ctx, input }) => relabelTag(ctx.group.id, input.tagId, input.label, ctx.actor)),
+  /** Change the label and/or the QR / NFC capabilities (omitted fields unchanged). */
+  update: groupProcedure
+    .input(updateTagInput.extend({ tagId: id }))
+    .mutation(({ ctx, input }) =>
+      updateTag(ctx.group.id, input.tagId, { label: input.label, qr: input.qr, nfc: input.nfc }, ctx.actor),
+    ),
   /** `{ url, svg }`: server-generated QR code for one tag. */
   qr: groupProcedure.input(z.object({ tagId: id })).query(({ ctx, input }) => tagQr(ctx.group.id, input.tagId)),
 

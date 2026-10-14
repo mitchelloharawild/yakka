@@ -151,7 +151,7 @@ export function GroupShell({ children }: { children: React.ReactNode }) {
 
   return (
     <IdentityContext.Provider value={{ me, requestIdentity, openPicker }}>
-      <div className="sticky top-14 z-30 -mx-4 -mt-6 mb-4 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+      <div data-print-hide className="sticky top-14 z-30 -mx-4 -mt-6 mb-4 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="flex items-center gap-2 pt-3 pb-2">
           <h1 className="min-w-0 flex-1 truncate font-heading text-xl font-semibold tracking-tight">{group.name}</h1>
           <button

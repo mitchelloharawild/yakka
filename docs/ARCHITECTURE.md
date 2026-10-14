@@ -38,7 +38,7 @@ Member       id, groupId, name, colour, archivedAt
 Chore        id, groupId, title, icon, rrule, anchor (due-date | completion-date),
              assigneeMode (anyone | fixed | round-robin), assigneeId?, graceMinutes
 Tag          id, token (separate short secret), groupId, choreId,
-             kind (qr | nfc | url), label, revokedAt
+             qr, nfc (what the printed label offers), label, revokedAt
 Completion   id, choreId, memberId?, source (tag | manual | api | webhook),
              tagId?, deviceId, completedAt, undoneAt
 ApiToken     id, groupId, name, hash, lastUsedAt

@@ -1,7 +1,10 @@
 "use client";
 
-/** Printable sheet of QR labels (A4 grid). QR SVGs are generated on the server. */
-import { ArrowLeft, Printer } from "lucide-react";
+/**
+ * Printable sheet of tag labels (A4 grid). Each label shows what the tag
+ * offers: a QR code (SVG generated on the server), an NFC tap mark, or both.
+ */
+import { ArrowLeft, Nfc, Printer, QrCode } from "lucide-react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
@@ -11,7 +14,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 export interface PrintableLabel {
   id: string;
   url: string;
-  svg: string;
+  /** QR code SVG; null when the tag has no QR code. */
+  svg: string | null;
+  qr: boolean;
+  nfc: boolean;
   label: string | null;
   chore: { title: string; icon: string | null };
 }
@@ -25,9 +31,20 @@ const PRINT_CSS = `
 }
 `;
 
-export function PrintSheet({ groupId, labels }: { groupId: string; labels: PrintableLabel[] }) {
+export function PrintSheet({
+  groupId,
+  labels,
+  initialSelected,
+}: {
+  groupId: string;
+  labels: PrintableLabel[];
+  /** Ids to select at first (default: all). */
+  initialSelected?: string[] | null;
+}) {
   const t = useTranslations("tag.print");
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(labels.map((l) => l.id)));
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(initialSelected ?? labels.map((l) => l.id)),
+  );
   const toggle = (id: string, on: boolean) =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -82,25 +99,55 @@ export function PrintSheet({ groupId, labels }: { groupId: string; labels: Print
                 >
                   <Checkbox checked={on} onCheckedChange={(v) => toggle(l.id, v === true)} aria-label={l.chore.title} />
                 </label>
-                <div className="flex h-full flex-col items-center gap-1 rounded-lg border bg-white p-3 text-center text-black print:rounded-none print:border-dashed print:border-neutral-400 print:p-[4mm]">
-                  <div
-                    className="aspect-square w-full max-w-44 print:w-[42mm] [&>svg]:size-full"
-                    // Server-generated SVG (qrcode) of our own URL.
-                    dangerouslySetInnerHTML={{ __html: l.svg }}
-                  />
-                  <div className="flex items-center gap-1.5 text-base leading-tight font-semibold">
-                    {l.chore.icon && <span aria-hidden>{l.chore.icon}</span>}
-                    <span>{l.chore.title}</span>
-                  </div>
-                  {l.label && <div className="text-xs text-neutral-600">{l.label}</div>}
-                  <div className="text-[10px] text-neutral-500">{t("scanHint")}</div>
-                  <div className="font-mono text-[8px] break-all text-neutral-500">{l.url}</div>
-                </div>
+                <TagLabel label={l} />
               </li>
             );
           })}
         </ul>
       )}
+    </div>
+  );
+}
+
+/** One cut-out label: a QR code and/or NFC tap mark, the chore, then how to use it. */
+function TagLabel({ label: l }: { label: PrintableLabel }) {
+  const t = useTranslations("tag.print");
+  const hint = l.qr && l.nfc ? "both" : l.qr ? "QR" : "NFC";
+  return (
+    <div className="flex h-full flex-col items-center gap-1.5 rounded-lg border bg-white p-3 text-center text-black print:rounded-none print:border-dashed print:border-neutral-400 print:p-[4mm]">
+      {l.svg ? (
+        <div
+          className="aspect-square w-full max-w-44 print:w-[42mm] [&>svg]:size-full"
+          // Server-generated SVG (qrcode) of our own URL.
+          dangerouslySetInnerHTML={{ __html: l.svg }}
+        />
+      ) : (
+        <div className="flex aspect-square w-full max-w-44 flex-col items-center justify-center gap-2 rounded-full border-[3px] border-dashed border-black print:w-[42mm]">
+          <Nfc className="size-16 print:size-[18mm]" strokeWidth={1.5} aria-hidden />
+          <span className="text-sm font-semibold">{t("tapHere")}</span>
+        </div>
+      )}
+      <div className="flex items-center gap-1.5 text-base leading-tight font-semibold">
+        {l.chore.icon && <span aria-hidden>{l.chore.icon}</span>}
+        <span>{l.chore.title}</span>
+      </div>
+      {l.label && <div className="text-xs text-neutral-600">{l.label}</div>}
+      <div className="flex items-center gap-1.5">
+        {l.qr && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-black px-2 py-0.5 text-[11px] font-medium">
+            <QrCode className="size-3" aria-hidden />
+            {t("scan")}
+          </span>
+        )}
+        {l.nfc && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-black px-2 py-0.5 text-[11px] font-medium">
+            <Nfc className="size-3" aria-hidden />
+            {t("tap")}
+          </span>
+        )}
+      </div>
+      <div className="text-[10px] text-neutral-600">{t(`hint.${hint}`)}</div>
+      <div className="mt-auto font-mono text-[8px] break-all text-neutral-500">{l.url}</div>
     </div>
   );
 }

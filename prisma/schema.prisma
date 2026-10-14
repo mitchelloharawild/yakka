@@ -111,18 +111,13 @@ model Chore {
   @@index([groupId])
 }
 
-enum TagKind {
-  QR
-  NFC
-  URL
-}
-
 model Tag {
   id         String    @id @default(cuid())
   token      String    @unique // short secret encoded in /t/{token}
   groupId    String
   choreId    String
-  kind       TagKind   @default(QR)
+  qr         Boolean   @default(true) // printed label shows a QR code
+  nfc        Boolean   @default(false) // label marks an NFC tag to tap
   label      String?
   createdAt  DateTime  @default(now())
   lastUsedAt DateTime?
