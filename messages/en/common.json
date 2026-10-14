@@ -40,5 +40,13 @@
     "overdue": "Overdue",
     "done": "Done",
     "unscheduled": "Any time"
+  },
+  "docs": {
+    "title": "Docs",
+    "description": "Self-hosting, the API and webhooks, and how Yakka is built.",
+    "intro": "Host your own Yakka, connect it to other tools, or find your way around the code. The source is on <github>GitHub</github>.",
+    "nav": "Documentation",
+    "overview": "Overview",
+    "edit": "Edit this page on GitHub"
   }
 }

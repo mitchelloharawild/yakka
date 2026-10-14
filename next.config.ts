@@ -4,6 +4,9 @@ const nextConfig: NextConfig = {
   // Self-contained server in .next/standalone for the Docker image (Agent D).
   // Opt-in, because `next start` refuses to run a standalone build.
   output: process.env.NEXT_OUTPUT === "standalone" ? "standalone" : undefined,
+  // /docs pages read docs/*.md (src/lib/docs.ts). They're prerendered, but
+  // ship the files with the standalone server in case a page renders on demand.
+  outputFileTracingIncludes: { "/docs/*": ["./docs/*.md"] },
   cacheComponents: true,
   partialPrefetching: true,
   // Native modules must not be bundled.

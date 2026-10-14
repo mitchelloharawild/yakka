@@ -29,7 +29,7 @@ with `proxy_add_x_forwarded_for` and Traefik do); rate limiting reads the
 client IP from it, or from the header named in `RATE_LIMIT_IP_HEADER` (see
 [Rate limiting](#rate-limiting)). On iOS, push notifications only work after
 "Add to Home Screen" (iOS 16.4+), and NFC/QR scans always open Safari rather
-than the installed app (ARCHITECTURE §3).
+than the installed app ([ARCHITECTURE §3](ARCHITECTURE.md#3-tap-to-complete-flow)).
 
 ## Environment variables
 

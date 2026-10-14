@@ -112,6 +112,9 @@ deploying to Vercel.
 
 ## Docs
 
+The docs are also on the website, at [yakka.nectric.com.au/docs](https://yakka.nectric.com.au/docs)
+(or `/docs` on your own instance).
+
 - [Architecture](docs/ARCHITECTURE.md): data model, tap-to-complete flow,
   identity in the browser, API and webhooks, scheduling and deployment.
 - [Development](docs/DEVELOPMENT.md): code layout, conventions and

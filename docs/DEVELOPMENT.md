@@ -374,7 +374,7 @@ any saved row that doesn't match. Push services answering
 
 ## Identity in the browser (`src/lib/client/local-groups.ts`)
 
-The localStorage layout follows ARCHITECTURE §4:
+The localStorage layout follows [ARCHITECTURE §4](ARCHITECTURE.md#4-identity-in-the-browser):
 `groups = [{ id, name, memberId, starred, lastOpened }]` and a lazily created
 `deviceId`.
 

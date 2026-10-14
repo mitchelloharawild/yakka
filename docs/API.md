@@ -4,7 +4,7 @@ Yakka has no user accounts, so every integration is scoped to **one group** by a
 secret. Manage them all on the group's **Integrations** page
 (`/groups/{groupId}/integrations`). If the group has a settings PIN, creating,
 revoking or revealing anything there needs the PIN. Repeated wrong PINs lock
-the PIN for a while (see DEPLOYMENT.md, "Settings PIN attempts").
+the PIN for a while (see [Settings PIN attempts](DEPLOYMENT.md#settings-pin-attempts)).
 
 There are three ways in and out:
 
