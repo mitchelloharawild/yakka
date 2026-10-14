@@ -101,6 +101,10 @@ localStorage["deviceId"] = crypto.randomUUID() // attached to completions for th
 
 - **Move to another device:** show a QR code of `group URL + ?as={memberId}`.
 - **Export / import** of the local data, as in Spliit.
+- **Group export / import** (server-side, `src/lib/services/portability.ts`): a
+  versioned `yakka.group` JSON file that moves a group to another instance. It
+  holds settings, members, chores, tags and completions. Secrets and
+  instance-bound data are left out. Import always mints a new group id.
 - **Accepted trade-off (same as Spliit):** anyone with the group link can act as any
   member. Mitigations are the audit log with device IDs, undo, and an optional PIN for
   group settings.

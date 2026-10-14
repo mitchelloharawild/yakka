@@ -45,7 +45,13 @@
     "submit": "Create group",
     "creating": "Creating…",
     "created": "Group created",
-    "nameRequired": "Give your group a name."
+    "nameRequired": "Give your group a name.",
+    "importTitle": "Moving from another Yakka server?",
+    "importHint": "Import a group file exported from Settings. This creates a new group with its own link.",
+    "importButton": "Import a group file",
+    "importing": "Importing…",
+    "imported": "Group imported",
+    "importedReissued": "{count, plural, one {# tag got a new code. Reprint its label.} other {# tags got new codes. Reprint their labels.}}"
   },
   "suggestions": {
     "bins": "Take the bins out",
@@ -223,7 +229,8 @@
       "group": {
         "created": "created the group",
         "updated": "changed group settings",
-        "deleted": "deleted the group"
+        "deleted": "deleted the group",
+        "imported": "imported the group"
       },
       "member": {
         "created": "added {name}",
@@ -331,6 +338,10 @@
     "transferHint": "Scan this on your other phone. It opens the group as {name}.",
     "transferNoIdentity": "Pick who you are first, then you can move to another device.",
     "transferAs": "Open as",
+    "exportGroup": "Export group",
+    "exportGroupHint": "Download the group as a file to back it up or move it to another Yakka server. It includes members, chores, tags and history. It leaves out the PIN, integrations and notifications.",
+    "exportGroupButton": "Download group file",
+    "exportGroupDone": "Group exported",
     "localData": "This device",
     "localDataHint": "Your groups and identities are stored only in this browser. Export them as a backup or to move everything at once.",
     "export": "Export",
@@ -370,6 +381,8 @@
     "GROUP_NOT_FOUND": "This group no longer exists.",
     "CHORE_NOT_FOUND": "That chore no longer exists.",
     "COMPLETION_NOT_FOUND": "That completion no longer exists.",
-    "BAD_REQUEST": "Please check the form."
+    "BAD_REQUEST": "Please check the form.",
+    "IMPORT_INVALID": "That file isn't a Yakka group export, or it's damaged.",
+    "IMPORT_VERSION_UNSUPPORTED": "That file comes from a newer version of Yakka. Update this server first."
   }
 }

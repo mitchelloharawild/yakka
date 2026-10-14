@@ -9,6 +9,7 @@ export const ACTIVITY_TYPES = [
   "group.created",
   "group.updated",
   "group.deleted",
+  "group.imported",
   "member.created",
   "member.updated",
   "member.archived",

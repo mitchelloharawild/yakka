@@ -33,6 +33,11 @@ const RULES: Array<{ match: (pathname: string) => number; rule: RateLimitRule }>
   },
   { match: (p) => (p.startsWith("/api/hooks/") ? 1 : 0), rule: { name: "hooks", limit: 30, windowMs: minute } },
   { match: (p) => (p.startsWith("/api/offline/") ? 1 : 0), rule: { name: "offline", limit: 30, windowMs: minute } },
+  // Group import (creates a whole group from a file): expensive, so tight.
+  {
+    match: (p) => (trpcProcedures(p).includes("groups.import") ? 1 : 0),
+    rule: { name: "import", limit: 10, windowMs: 10 * minute },
+  },
   { match: (p) => (p.startsWith("/api/v1/") ? 1 : 0), rule: { name: "api", limit: 120, windowMs: minute } },
 ];
 

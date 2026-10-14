@@ -5,6 +5,7 @@ import {
   BellIcon,
   CopyIcon,
   DownloadIcon,
+  FileJsonIcon,
   KeyRoundIcon,
   Loader2Icon,
   LockIcon,
@@ -95,6 +96,7 @@ export function SettingsView() {
       <NotificationSettings />
       <ShareSettings />
       <TransferSettings />
+      <ExportGroup pin={pin} locked={locked} onPinRejected={onPinRejected} />
       <LocalDataSettings />
       <DeleteGroup pin={pin} locked={locked} />
     </div>
@@ -460,6 +462,55 @@ function TransferSettings() {
   );
 }
 
+/** Save `text` as a file download. */
+function downloadFile(text: string, filename: string) {
+  const blob = new Blob([text], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function ExportGroup({
+  pin,
+  locked,
+  onPinRejected,
+}: {
+  pin: string | null;
+  locked: boolean;
+  onPinRejected: () => void;
+}) {
+  const t = useTranslations("group.settings");
+  const trpc = useTRPC();
+  const group = useGroup();
+  const actor = useActor();
+  const errorMessage = useErrorMessage();
+  const exportM = useMutation(trpc.groups.export.mutationOptions());
+
+  async function download() {
+    try {
+      const doc = await exportM.mutateAsync({ groupId: group.id, pin, actor: actor() });
+      const slug = group.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "group";
+      downloadFile(JSON.stringify(doc, null, 2), `yakka-${slug}-${new Date().toISOString().slice(0, 10)}.json`);
+      toast.success(t("exportGroupDone"));
+    } catch (err) {
+      const reason = errorReason(err);
+      if (reason === "PIN_INVALID" || reason === "PIN_REQUIRED") onPinRejected();
+      toast.error(errorMessage(err));
+    }
+  }
+
+  return (
+    <Section title={t("exportGroup")} hint={t("exportGroupHint")} icon={<FileJsonIcon className="size-4" />}>
+      <Button type="button" variant="outline" className="self-start" disabled={locked || exportM.isPending} onClick={download}>
+        {exportM.isPending ? <Loader2Icon className="animate-spin" /> : <DownloadIcon />}
+        {t("exportGroupButton")}
+      </Button>
+    </Section>
+  );
+}
+
 function LocalDataSettings() {
   const t = useTranslations("group.settings");
   const [text, setText] = useState("");
@@ -467,12 +518,7 @@ function LocalDataSettings() {
   const file = useRef<HTMLInputElement>(null);
 
   function download() {
-    const blob = new Blob([exportLocalData()], { type: "application/json" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `yakka-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    downloadFile(exportLocalData(), `yakka-${new Date().toISOString().slice(0, 10)}.json`);
   }
 
   function doImport(json: string) {

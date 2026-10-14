@@ -153,6 +153,21 @@ Undoes a completion. There is no time limit, and undoing twice is harmless: the
 second call returns `"alreadyUndone": true`. Response:
 `{ completion, alreadyUndone, nextDueAt, chore }`.
 
+### `GET /export`
+
+Returns the whole group as a portable JSON export (`"format": "yakka.group"`,
+`"version": 1`). It holds the group settings, members, chores, tags and every
+completion, so a scheduled call makes a good backup. Import the file on any
+Yakka instance from **Create a group → Import a group file**. Import always
+creates a new group with a new link.
+
+The export leaves out anything secret or tied to this server: the settings
+PIN, API tokens, hook URLs, webhooks, push subscriptions and the activity log.
+Tag tokens are included. On import, a token is kept when it's free on the
+target server, so labels keep working if the domain moves with the data.
+Tokens that are already taken get new values, and those labels must be
+reprinted.
+
 ## Inbound hooks
 
 An inbound hook is a secret URL that completes **one chore**:

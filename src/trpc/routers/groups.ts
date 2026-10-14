@@ -35,7 +35,8 @@ import {
   updateMember,
   updateMemberInput,
 } from "@/lib/services/members";
-import { actorInput, baseProcedure, createTRPCRouter, groupProcedure } from "@/trpc/init";
+import { exportGroup, importGroup } from "@/lib/services/portability";
+import { actorInput, baseProcedure, createTRPCRouter, groupPinProcedure, groupProcedure } from "@/trpc/init";
 
 const id = z.string().min(1).max(64);
 const pageInput = { limit: z.number().int().min(1).max(200).optional(), cursor: z.string().nullish() };
@@ -126,6 +127,19 @@ export const groupsRouter = createTRPCRouter({
       const group = await createGroup(data, actor ?? undefined);
       return toPublicGroup(group);
     }),
+  /**
+   * Create a new group from an export file (src/lib/services/portability.ts).
+   * `data` is the parsed JSON; it's validated by the service. Rate limited in
+   * src/proxy.ts.
+   */
+  import: baseProcedure
+    .input(z.object({ data: z.unknown(), actor: actorInput }))
+    .mutation(({ input }) =>
+      // The actor's memberId belongs to another group (or instance): keep only the device.
+      importGroup(input.data, { deviceId: input.actor?.deviceId ?? null }),
+    ),
+  /** The portable JSON export of the group. A mutation so the PIN isn't sent in a URL. */
+  export: groupPinProcedure.mutation(({ ctx }) => exportGroup(ctx.group.id)),
   /** The group with all members (archived included). */
   get: groupProcedure.query(async ({ ctx }) => toPublicGroup(await getGroupWithMembers(ctx.group.id))),
   /** Names of known groups, for the "recent groups" list. Unknown/deleted ids are omitted. */

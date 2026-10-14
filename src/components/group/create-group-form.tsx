@@ -1,10 +1,10 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { CheckIcon, Loader2Icon, PlusIcon, XIcon } from "lucide-react";
+import { CheckIcon, Loader2Icon, PlusIcon, UploadIcon, XIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -232,6 +232,66 @@ export function CreateGroupForm() {
         {busy && <Loader2Icon className="animate-spin" />}
         {busy ? t("creating") : t("submit")}
       </Button>
+
+      <ImportGroup />
     </form>
+  );
+}
+
+/** Create a group from a file made by Settings → Export group (possibly on another server). */
+function ImportGroup() {
+  const t = useTranslations("group.create");
+  const te = useTranslations("group.errors");
+  const trpc = useTRPC();
+  const router = useRouter();
+  const errorMessage = useErrorMessage();
+  const file = useRef<HTMLInputElement>(null);
+  const importGroup = useMutation(trpc.groups.import.mutationOptions());
+
+  async function run(f: File) {
+    let data: unknown;
+    try {
+      data = JSON.parse(await f.text());
+    } catch {
+      toast.error(te("IMPORT_INVALID"));
+      return;
+    }
+    try {
+      const group = await importGroup.mutateAsync({ data, actor: { deviceId: getDeviceId() } });
+      touchGroup({ id: group.id, name: group.name });
+      toast.success(t("imported"));
+      if (group.reissuedTags > 0) toast.warning(t("importedReissued", { count: group.reissuedTags }));
+      router.push(`/groups/${group.id}`);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-start gap-2 rounded-2xl border border-dashed p-4">
+      <p className="text-sm font-medium">{t("importTitle")}</p>
+      <p className="text-xs text-muted-foreground">{t("importHint")}</p>
+      <Button
+        type="button"
+        variant="outline"
+        className="h-10"
+        disabled={importGroup.isPending || importGroup.isSuccess}
+        onClick={() => file.current?.click()}
+      >
+        {importGroup.isPending ? <Loader2Icon className="animate-spin" /> : <UploadIcon />}
+        {importGroup.isPending ? t("importing") : t("importButton")}
+      </Button>
+      <input
+        ref={file}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void run(f);
+          e.target.value = "";
+        }}
+      />
+    </div>
   );
 }
