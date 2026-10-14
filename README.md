@@ -1,8 +1,8 @@
-<p align="center">
-  <img src="public/icons/icon.svg" alt="Yakka logo" width="96" height="96">
-</p>
+<img src="public/icons/icon.svg" alt="Yakka logo" width="96" height="96" align="right">
 
-<h1 align="center">Yakka</h1>
+# Yakka
+
+*Yakka* (from Yagara *yaga*, "work") is Australian slang for work, and hard yakka gets done together.
 
 **Share the yakka.** An account-less household chore tracker. Chores are
 completed by scanning a QR code or NFC tag stuck where the job happens, or via
@@ -14,12 +14,10 @@ no sign-up, groups are shared by link, and your identity in each group is
 remembered by your browser.
 
 <p align="center">
-  <img src="docs/images/chores-desktop.png" alt="Chore list on desktop, showing overdue, due and upcoming chores with whose turn it is" width="100%">
+  <img src="docs/images/desktop.png" alt="Annotated desktop screenshots: the chore list with a weekly tally, overdue status, whose turn it is and one-tap done; the activity feed; adaptive schedules and rotating turns; QR and NFC tags; and signed webhooks" width="100%">
 </p>
 <p align="center">
-  <img src="docs/images/tag-phone.png" alt="Tag page on a phone after scanning a QR code: the chore is ticked off with an undo button" width="32%">
-  &nbsp;
-  <img src="docs/images/chores-phone-dark.png" alt="Chore list on a phone in dark mode" width="32%">
+  <img src="docs/images/mobile.png" alt="Annotated phone screenshots: picking your name with no sign-up, a chore ticked off by scanning a tag with an undo button, and the chore list in dark mode with the theme toggle" width="100%">
 </p>
 
 > Status: v1 works end to end: groups shared by link, recurring chores with
