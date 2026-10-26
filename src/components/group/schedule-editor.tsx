@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { describeRRule, upcomingOccurrences, validateRRule } from "@/lib/schedule";
+import { describeRRule, offScheduleStart, upcomingOccurrences, validateRRule } from "@/lib/schedule";
 import { cn } from "@/lib/utils";
 import {
   buildRRule,
@@ -74,6 +74,12 @@ export function ScheduleEditor({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rrule, startsAt, timezone, error]);
+
+  const offSchedule = useMemo(
+    () => (rrule && start && !error ? offScheduleStart(rrule, start, timezone) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rrule, startsAt, timezone, error],
+  );
 
   function changeKind(kind: PresetKind) {
     const ref = start ?? new Date();
@@ -234,6 +240,11 @@ export function ScheduleEditor({
         <p className="text-xs text-muted-foreground">
           {preset.kind === "once" ? t("dueHint", { timezone }) : t("startsHint", { timezone })}
         </p>
+        {offSchedule && (
+          <p className="text-xs text-amber-800 dark:text-amber-300">
+            {t("startsOffSchedule", { first: fmt(offSchedule) })}
+          </p>
+        )}
       </div>
 
       {error ? (

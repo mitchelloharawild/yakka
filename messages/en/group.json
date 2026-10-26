@@ -171,6 +171,7 @@
     "rruleInvalid": "That rule isn't valid: {error}",
     "starts": "Starts",
     "startsHint": "The time of day it's due. Times are in {timezone}.",
+    "startsOffSchedule": "The start isn't on a scheduled day, so it's first due {first}. Repeats count from the start's week, so pick a scheduled day to choose which weeks it's due.",
     "due": "Due",
     "dueHint": "Leave empty for a chore that can be done any time. Times are in {timezone}.",
     "clearDate": "Clear",
