@@ -16,7 +16,8 @@
  *  - Anchor DUE_DATE: a completion satisfies the earliest occurrence that
  *    isn't satisfied yet. For a completion C, let P be the latest occurrence
  *    <= C and N the first occurrence > C:
- *      - no P (before the first occurrence): C satisfies N (early);
+ *      - no P (before the first occurrence): C satisfies N (early) if
+ *        within EARLY_WINDOW of it, and changes nothing otherwise;
  *      - P not yet satisfied: C is a (late or on-time) completion of P, so N
  *        is next. Exception: C within EARLY_WINDOW of N (a quarter of the
  *        interval, at most 12 h) counts as an early completion of N, and P
@@ -319,6 +320,7 @@ function firstUnsatisfied(
 /** Early-completion window before an occurrence, as a share of the interval and in absolute terms. */
 const EARLY_WINDOW_SHARE = 0.25;
 const EARLY_WINDOW_MAX_MS = 12 * 60 * MINUTE;
+const earlyWindowMs = (interval: number) => Math.min(interval * EARLY_WINDOW_SHARE, EARLY_WINDOW_MAX_MS);
 
 /**
  * DUE_DATE: the latest satisfied occurrence (wall clock) after completion
@@ -329,13 +331,19 @@ function satisfyDueDate(rule: RRule, c: Date, satisfied: Date | null, assumePrev
   const n = rule.after(c, false);
   const p = rule.before(c, true);
   const later = (a: Date | null, b: Date) => (a && a.getTime() > b.getTime() ? a : b);
-  if (!p) return n ? later(satisfied, n) : satisfied; // before the first occurrence: early completion of it
+  const untilN = n ? n.getTime() - c.getTime() : Infinity;
+  if (!p) {
+    // Before the first occurrence: an early completion of it only within the early window.
+    if (!n) return satisfied;
+    const following = rule.after(n, false);
+    const interval = following ? following.getTime() - n.getTime() : Infinity;
+    return untilN <= earlyWindowMs(interval) ? later(satisfied, n) : satisfied;
+  }
   const pSatisfied = assumePrevious || (satisfied !== null && satisfied.getTime() >= p.getTime());
   if (!n) return later(satisfied, p); // series ended after P
   if (satisfied && satisfied.getTime() >= n.getTime()) return satisfied; // N already covered
   const interval = n.getTime() - p.getTime();
-  const untilN = n.getTime() - c.getTime();
-  const inWindow = untilN <= Math.min(interval * EARLY_WINDOW_SHARE, EARLY_WINDOW_MAX_MS);
+  const inWindow = untilN <= earlyWindowMs(interval);
   if (!pSatisfied) return inWindow ? n : p; // late (or on-time) completion of P, unless right before N
   const secondHalf = c.getTime() >= p.getTime() + interval / 2;
   return secondHalf || inWindow ? n : later(satisfied, p);
@@ -381,6 +389,22 @@ export function upcomingOccurrences(
     inclusive = false;
   }
   return out;
+}
+
+/**
+ * When `startsAt` isn't itself an occurrence of `rrule` (e.g. a start on a
+ * Friday for a Wednesday rule), the first occurrence after it; null when it
+ * is, or the rule is invalid. INTERVAL counts from the week (month, …) of
+ * the start, so an off-schedule start can silently shift which weeks are
+ * due. For the chore editor.
+ */
+export function offScheduleStart(rrule: string, startsAt: Date, timezone: string): Date | null {
+  try {
+    const [first] = upcomingOccurrences({ rrule, startsAt, createdAt: startsAt }, timezone, startsAt, 1);
+    return first && first.getTime() !== startsAt.getTime() ? first : null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------

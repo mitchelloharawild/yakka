@@ -5,6 +5,7 @@ import {
   describeRRule,
   fromWallClock,
   normalizeRRule,
+  offScheduleStart,
   quantile,
   SCHEDULE_HISTORY,
   scheduleTransitions,
@@ -167,14 +168,45 @@ describe("computeSchedule: recurring, DUE_DATE anchor", () => {
     expect(s.nextDueAt).toEqual(at("2026-06-14T23:00:00Z"));
   });
 
-  it("completion before the first occurrence satisfies it", () => {
+  it("completion long before the first occurrence doesn't satisfy it", () => {
     const s = computeSchedule({
       chore: weekly,
       timezone: SYD,
       lastCompletion: done("2026-05-20T00:00:00Z"),
       now: at("2026-05-21T00:00:00Z"),
     });
+    expect(s.nextDueAt).toEqual(at("2026-05-31T23:00:00Z"));
+  });
+
+  it("completion within the early window before the first occurrence satisfies it", () => {
+    // Sun 31 May 22:00 local, 11 h before the first occurrence.
+    const s = computeSchedule({
+      chore: weekly,
+      timezone: SYD,
+      lastCompletion: done("2026-05-31T12:00:00Z"),
+      now: at("2026-05-31T13:00:00Z"),
+    });
     expect(s.nextDueAt).toEqual(at("2026-06-07T23:00:00Z"));
+  });
+
+  it("completion on a weekday skipped by an off-schedule start doesn't skip the first occurrence", () => {
+    // Fortnightly on Wednesday 18:00, but starting on Friday 6 March: that
+    // week's Wednesday is before the start, so the first occurrence is
+    // Wednesday 18 March. Done on Wednesday 4 March, two weeks early.
+    const fortnightly = chore({
+      rrule: "FREQ=WEEKLY;INTERVAL=2;BYDAY=WE",
+      startsAt: at("2026-03-06T18:00:00Z"),
+    });
+    const s = computeSchedule({
+      chore: fortnightly,
+      timezone: "UTC",
+      lastCompletion: done("2026-03-04T16:00:00Z"),
+      previousCompletions: [],
+      completeHistory: true,
+      now: at("2026-03-10T00:00:00Z"),
+    });
+    expect(s.nextDueAt).toEqual(at("2026-03-18T18:00:00Z"));
+    expect(s.status).toBe("upcoming");
   });
 
   it("completion exactly at the due time satisfies it", () => {
@@ -501,5 +533,30 @@ describe("scheduleTransitions", () => {
     expect(t).toEqual([
       { kind: "due", dueAt: at("2026-06-05T09:00:00Z"), overdueAt: at("2026-06-05T09:30:00Z"), at: at("2026-06-05T09:00:00Z") },
     ]);
+  });
+});
+
+describe("offScheduleStart", () => {
+  it("is null when the start is an occurrence", () => {
+    expect(offScheduleStart("FREQ=WEEKLY;INTERVAL=2;BYDAY=WE", at("2026-03-04T18:00:00Z"), "UTC")).toBeNull();
+    expect(offScheduleStart("FREQ=DAILY", at("2026-03-06T18:00:00Z"), "UTC")).toBeNull();
+  });
+
+  it("returns the first occurrence when the start is on another day", () => {
+    expect(offScheduleStart("FREQ=WEEKLY;INTERVAL=2;BYDAY=WE", at("2026-03-06T18:00:00Z"), "UTC")).toEqual(
+      at("2026-03-18T18:00:00Z"),
+    );
+    expect(offScheduleStart("FREQ=MONTHLY;BYMONTHDAY=1", at("2026-03-06T18:00:00Z"), "UTC")).toEqual(
+      at("2026-04-01T18:00:00Z"),
+    );
+  });
+
+  it("works in wall-clock time of the timezone", () => {
+    // Mon 1 June 09:00 Sydney is 2026-05-31T23:00Z.
+    expect(offScheduleStart("FREQ=WEEKLY;BYDAY=MO", at("2026-05-31T23:00:00Z"), SYD)).toBeNull();
+  });
+
+  it("is null for an invalid rule", () => {
+    expect(offScheduleStart("NOT A RULE", at("2026-03-06T18:00:00Z"), "UTC")).toBeNull();
   });
 });

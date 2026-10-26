@@ -162,7 +162,9 @@ The rules:
   - P already satisfied: in the second half of the interval it's an early
     completion of N (done Saturday for Monday); in the first half it's an
     extra completion and changes nothing.
-  - Before the first occurrence: an early completion of it.
+  - Before the first occurrence: an early completion of it if within the
+    early window, otherwise an extra completion that changes nothing (so a
+    stray tap days ahead can't skip the first due date).
   This needs a little history, so pass `previousCompletions` (the
   `SCHEDULE_HISTORY` = 10 non-undone completions before the last, newest
   first; DUE_DATE only looks at 3 of them) and `completeHistory` (true if
