@@ -11,6 +11,8 @@ import {
   createChoreInput,
   getChoreView,
   listChores,
+  previewChoreSchedule,
+  schedulePreviewInput,
   setChoreArchived,
   updateChore,
   updateChoreInput,
@@ -69,6 +71,10 @@ const choresRouter = createTRPCRouter({
   update: groupProcedure
     .input(z.object({ choreId: id, patch: updateChoreInput }))
     .mutation(({ ctx, input }) => updateChore(ctx.group.id, input.choreId, input.patch, ctx.actor)),
+  /** Next due date now and with the given schedule fields applied (editor preview; writes nothing). */
+  previewSchedule: groupProcedure
+    .input(z.object({ choreId: id, patch: schedulePreviewInput }))
+    .query(({ ctx, input }) => previewChoreSchedule(ctx.group.id, input.choreId, input.patch)),
   setArchived: groupProcedure
     .input(z.object({ choreId: id, archived: z.boolean() }))
     .mutation(({ ctx, input }) => setChoreArchived(ctx.group.id, input.choreId, input.archived, ctx.actor)),

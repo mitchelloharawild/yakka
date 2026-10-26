@@ -57,6 +57,9 @@ export const createChoreInput = z.object(choreFields);
 /** zod: patch accepted by updateChore() (all fields optional; null clears). */
 export const updateChoreInput = z.object(choreFields).partial();
 
+/** zod: the schedule fields previewChoreSchedule() takes (same rules as updateChoreInput). */
+export const schedulePreviewInput = updateChoreInput.pick({ rrule: true, startsAt: true, anchor: true, graceMinutes: true });
+
 /** The latest non-undone completion plus SCHEDULE_HISTORY before it (newest first). */
 const lastCompletionInclude = {
   completions: {
@@ -134,6 +137,57 @@ export async function getChoreView(
   if (!chore) throw notFound("CHORE_NOT_FOUND");
   const { completions, group, ...rest } = chore;
   return toChoreView(rest, completions, { timezone: group.timezone, members: group.members, now: opts.now });
+}
+
+/** Status and next due date of a schedule, as previewChoreSchedule() returns them. */
+export type SchedulePoint = Pick<Schedule, "status" | "nextDueAt">;
+
+/**
+ * A chore's schedule as it is and as it would be with the schedule fields
+ * in `patch` applied, from the same completion history (newest first, as
+ * toChoreView() takes it). Fields left undefined keep their value; null
+ * clears them.
+ */
+export function scheduleWithPatch(
+  chore: Chore,
+  completions: Completion[],
+  patch: z.output<typeof schedulePreviewInput>,
+  ctx: { timezone: string; now?: Date },
+): { before: SchedulePoint; after: SchedulePoint } {
+  const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+  const point = (c: Chore): SchedulePoint => {
+    const s = computeSchedule({
+      chore: c,
+      timezone: ctx.timezone,
+      lastCompletion: completions[0] ?? null,
+      previousCompletions: completions.slice(1),
+      completeHistory: completions.length < 1 + SCHEDULE_HISTORY,
+      now: ctx.now,
+    });
+    return { status: s.status, nextDueAt: s.nextDueAt };
+  };
+  return { before: point(chore), after: point({ ...chore, ...defined }) };
+}
+
+/**
+ * How an edit to a chore's schedule fields would move its next due date,
+ * before it's saved. The editor shows it so a surprising change (e.g. a
+ * past completion now counting for a later day) is visible up front.
+ */
+export async function previewChoreSchedule(
+  groupId: string,
+  choreId: string,
+  patch: z.input<typeof schedulePreviewInput>,
+  opts: { now?: Date } = {},
+) {
+  const data = schedulePreviewInput.parse(patch);
+  const chore = await prisma.chore.findFirst({
+    where: { id: choreId, groupId, group: { deletedAt: null } },
+    include: { ...lastCompletionInclude, group: true },
+  });
+  if (!chore) throw notFound("CHORE_NOT_FOUND");
+  const { completions, group, ...rest } = chore;
+  return scheduleWithPatch(rest, completions, data, { timezone: group.timezone, now: opts.now });
 }
 
 async function assertAssignee(groupId: string, assigneeId: string | null | undefined) {

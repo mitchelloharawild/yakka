@@ -1,7 +1,7 @@
 "use client";
 
 /** Bottom sheet to create or edit a chore, with its completion history. */
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
@@ -161,6 +161,29 @@ function ChoreForm({ chore, onDone }: { chore: ChoreItem | null; onDone: () => v
   const archive = useMutation(trpc.groups.chores.setArchived.mutationOptions({ onSuccess: onSaved }));
   const saving = create.isPending || update.isPending;
 
+  // Editing the schedule of an existing chore: preview where its next due date moves to.
+  const startsAtDate = fromLocalInputValue(f.startsAt, tz);
+  const scheduleEdited =
+    chore !== null &&
+    !sched.error &&
+    (sched.rrule !== chore.rrule ||
+      (startsAtDate?.getTime() ?? null) !== (chore.startsAt?.getTime() ?? null) ||
+      f.anchor !== chore.anchor ||
+      f.graceMinutes !== chore.graceMinutes);
+  const preview = useQuery({
+    ...trpc.groups.chores.previewSchedule.queryOptions({
+      groupId: group.id,
+      choreId: chore?.id ?? "",
+      patch: { rrule: sched.rrule, startsAt: startsAtDate, anchor: f.anchor, graceMinutes: f.graceMinutes },
+    }),
+    enabled: scheduleEdited,
+    placeholderData: keepPreviousData,
+  });
+  const moved =
+    scheduleEdited && preview.data && preview.data.before.nextDueAt?.getTime() !== preview.data.after.nextDueAt?.getTime()
+      ? preview.data
+      : null;
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!valid) return;
@@ -206,6 +229,11 @@ function ChoreForm({ chore, onDone }: { chore: ChoreItem | null; onDone: () => v
     : [...GRACE_OPTIONS, f.graceMinutes].sort((a, b) => a - b);
 
   const due = chore ? dueText(chore, now, tz) : null;
+  const format = useFormatter();
+  const dueWhen = (d: Date | null) =>
+    d
+      ? format.dateTime(d, { timeZone: tz, weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })
+      : t("scheduleChangeNone");
 
   return (
     <div className="flex flex-col gap-5 p-4 pb-8">
@@ -370,6 +398,12 @@ function ChoreForm({ chore, onDone }: { chore: ChoreItem | null; onDone: () => v
             className="min-h-16"
           />
         </div>
+
+        {moved && (
+          <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200" role="status">
+            {t("scheduleChange", { from: dueWhen(moved.before.nextDueAt), to: dueWhen(moved.after.nextDueAt) })}
+          </p>
+        )}
 
         <div className="flex gap-2">
           <Button type="button" variant="outline" size="lg" className="h-11 flex-1" onClick={onDone}>
