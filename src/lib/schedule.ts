@@ -407,6 +407,66 @@ export function offScheduleStart(rrule: string, startsAt: Date, timezone: string
   }
 }
 
+/**
+ * The days a recurring chore could first be due, from `from` on, at the
+ * wall-clock time of day of `timeOf`: occurrences of the rule with INTERVAL
+ * dropped, so `count` of them span every cycle the chore could follow
+ * (both weeks of a fortnightly rule, …). Each one is a valid start: the
+ * rule starting there has it as its first occurrence. For the chore editor.
+ */
+export function firstDueCandidates(rrule: string, timeOf: Date, timezone: string, from: Date, count: number): Date[] {
+  const opts = parseOptions(rrule);
+  delete opts.interval;
+  delete opts.count;
+  const t = toWallClock(timeOf, timezone);
+  const f = toWallClock(from, timezone);
+  const dtstart = new Date(
+    Date.UTC(f.getUTCFullYear(), f.getUTCMonth(), f.getUTCDate(), t.getUTCHours(), t.getUTCMinutes(), t.getUTCSeconds()),
+  );
+  const rule = buildRule(opts, dtstart);
+  const out: Date[] = [];
+  let cursor = f;
+  let inclusive = true;
+  while (out.length < count) {
+    const next = rule.after(cursor, inclusive);
+    if (!next) break;
+    out.push(fromWallClock(next, timezone));
+    cursor = next;
+    inclusive = false;
+  }
+  return out;
+}
+
+/**
+ * Move an off-schedule start back to the rule's first day in the same week
+ * (WEEKLY), month (MONTHLY) or year (YEARLY), e.g. a Friday start for a
+ * Wednesday rule becomes that week's Wednesday. INTERVAL counts from the
+ * start's period, so this keeps which weeks (months, …) are due and only
+ * restores the occurrence the off-schedule start skipped. Returns `startsAt`
+ * unchanged when nothing earlier in its period matches.
+ */
+export function snapStartToSchedule(rrule: string, startsAt: Date, timezone: string): Date {
+  const opts = parseOptions(rrule);
+  const wkst = typeof opts.wkst === "number" ? opts.wkst : (opts.wkst?.weekday ?? 0);
+  if (wkst !== 0) return startsAt; // only Monday-start weeks (the default)
+  const w = toWallClock(startsAt, timezone);
+  const [y, mo, d, h, mi, s] = [
+    w.getUTCFullYear(),
+    w.getUTCMonth(),
+    w.getUTCDate(),
+    w.getUTCHours(),
+    w.getUTCMinutes(),
+    w.getUTCSeconds(),
+  ];
+  let period: Date;
+  if (opts.freq === Frequency.WEEKLY) period = new Date(Date.UTC(y, mo, d - ((w.getUTCDay() + 6) % 7), h, mi, s));
+  else if (opts.freq === Frequency.MONTHLY) period = new Date(Date.UTC(y, mo, 1, h, mi, s));
+  else if (opts.freq === Frequency.YEARLY) period = new Date(Date.UTC(y, 0, 1, h, mi, s));
+  else return startsAt;
+  const first = buildRule(opts, period).after(period, true);
+  return first && first.getTime() < w.getTime() ? fromWallClock(first, timezone) : startsAt;
+}
+
 // ---------------------------------------------------------------------------
 // Adaptive schedule
 // ---------------------------------------------------------------------------

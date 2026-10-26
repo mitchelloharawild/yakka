@@ -3,12 +3,14 @@ import {
   adaptiveStats,
   computeSchedule,
   describeRRule,
+  firstDueCandidates,
   fromWallClock,
   normalizeRRule,
   offScheduleStart,
   quantile,
   SCHEDULE_HISTORY,
   scheduleTransitions,
+  snapStartToSchedule,
   startOfLocalDay,
   toWallClock,
   upcomingOccurrences,
@@ -558,5 +560,73 @@ describe("offScheduleStart", () => {
 
   it("is null for an invalid rule", () => {
     expect(offScheduleStart("NOT A RULE", at("2026-03-06T18:00:00Z"), "UTC")).toBeNull();
+  });
+});
+
+describe("firstDueCandidates", () => {
+  // March 2026: Sun 1, Mon 2, Wed 4, Fri 6.
+  it("lists every matching day, ignoring INTERVAL, at the given time of day", () => {
+    expect(
+      firstDueCandidates("FREQ=WEEKLY;INTERVAL=2;BYDAY=WE", at("2026-01-01T18:30:00Z"), "UTC", at("2026-03-02T10:00:00Z"), 2),
+    ).toEqual([at("2026-03-04T18:30:00Z"), at("2026-03-11T18:30:00Z")]);
+  });
+
+  it("includes today when the time hasn't passed yet, and skips it when it has", () => {
+    const rule = "FREQ=DAILY;INTERVAL=3";
+    expect(firstDueCandidates(rule, at("2026-01-01T09:00:00Z"), "UTC", at("2026-03-02T08:00:00Z"), 1)).toEqual([
+      at("2026-03-02T09:00:00Z"),
+    ]);
+    expect(firstDueCandidates(rule, at("2026-01-01T09:00:00Z"), "UTC", at("2026-03-02T10:00:00Z"), 1)).toEqual([
+      at("2026-03-03T09:00:00Z"),
+    ]);
+  });
+
+  it("uses wall-clock time in the timezone", () => {
+    // 09:00 Sydney on Mon 1 June 2026 is 2026-05-31T23:00Z.
+    const [first] = firstDueCandidates("FREQ=WEEKLY;BYDAY=MO", at("2026-05-31T23:00:00Z"), SYD, at("2026-05-30T00:00:00Z"), 1);
+    expect(first).toEqual(at("2026-05-31T23:00:00Z"));
+  });
+
+  it("each candidate is the first occurrence of the rule starting there", () => {
+    const rule = "FREQ=WEEKLY;INTERVAL=3;BYDAY=TU,SA";
+    for (const d of firstDueCandidates(rule, at("2026-01-01T07:00:00Z"), "UTC", at("2026-03-01T00:00:00Z"), 6)) {
+      expect(offScheduleStart(rule, d, "UTC")).toBeNull();
+    }
+  });
+});
+
+describe("snapStartToSchedule", () => {
+  it("moves a start back to the rule's day in the same week", () => {
+    expect(snapStartToSchedule("FREQ=WEEKLY;INTERVAL=2;BYDAY=WE", at("2026-03-06T18:00:00Z"), "UTC")).toEqual(
+      at("2026-03-04T18:00:00Z"),
+    );
+  });
+
+  it("keeps which weeks are due", () => {
+    const rule = "FREQ=WEEKLY;INTERVAL=2;BYDAY=WE";
+    const start = at("2026-03-06T18:00:00Z");
+    const snapped = snapStartToSchedule(rule, start, "UTC");
+    const from = at("2026-03-10T00:00:00Z");
+    expect(upcomingOccurrences({ rrule: rule, startsAt: snapped, createdAt: start }, "UTC", from, 3)).toEqual(
+      upcomingOccurrences({ rrule: rule, startsAt: start, createdAt: start }, "UTC", from, 3),
+    );
+  });
+
+  it("moves a start back to the rule's day in the same month", () => {
+    expect(snapStartToSchedule("FREQ=MONTHLY;INTERVAL=2;BYMONTHDAY=5", at("2026-03-20T09:00:00Z"), "UTC")).toEqual(
+      at("2026-03-05T09:00:00Z"),
+    );
+  });
+
+  it("leaves a start alone when nothing earlier in its period matches", () => {
+    const start = at("2026-03-02T09:00:00Z"); // Monday
+    expect(snapStartToSchedule("FREQ=WEEKLY;BYDAY=FR", start, "UTC")).toEqual(start);
+    expect(snapStartToSchedule("FREQ=WEEKLY;BYDAY=MO", start, "UTC")).toEqual(start);
+    expect(snapStartToSchedule("FREQ=DAILY;INTERVAL=2", start, "UTC")).toEqual(start);
+  });
+
+  it("leaves weeks starting on another day alone", () => {
+    const start = at("2026-03-06T18:00:00Z");
+    expect(snapStartToSchedule("FREQ=WEEKLY;INTERVAL=2;BYDAY=WE;WKST=SU", start, "UTC")).toEqual(start);
   });
 });

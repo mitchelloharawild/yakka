@@ -36,14 +36,14 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { CHECKLIST_ITEM_MAX, CHECKLIST_MAX_ITEMS } from "@/lib/checklist";
-import { ADAPTIVE_MIN_GAPS } from "@/lib/schedule";
+import { ADAPTIVE_MIN_GAPS, startOfLocalDay } from "@/lib/schedule";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 import { StatusBadge, useDueText } from "./chore-card";
 import { EmojiPicker } from "./emoji-picker";
 import { useActor, useErrorMessage, useGroup } from "./group-context";
 import { MemberAvatar } from "./member-avatar";
-import { ScheduleEditor, scheduleResult } from "./schedule-editor";
+import { alignedStartsAt, ScheduleEditor, scheduleResult } from "./schedule-editor";
 import { parseRRule, type SchedulePreset } from "./schedule-presets";
 import { approxDuration, fromLocalInputValue, toLocalInputValue, weekdayIn } from "./time";
 import { useChoreActions, type ChoreItem } from "./use-chore-actions";
@@ -67,14 +67,18 @@ interface FormState {
 }
 
 function initialState(chore: ChoreItem | null, timezone: string): FormState {
+  const now = new Date();
   if (chore) {
+    const preset = parseRRule(chore.rrule);
+    // A recurring chore without a start runs from 00:00 on the day it was created.
+    const start = chore.startsAt ?? (chore.rrule ? startOfLocalDay(chore.createdAt, timezone) : null);
     return {
       title: chore.title,
       description: chore.description ?? "",
       icon: chore.icon,
       checklist: chore.checklist,
-      preset: parseRRule(chore.rrule),
-      startsAt: chore.startsAt ? toLocalInputValue(chore.startsAt, timezone) : "",
+      preset,
+      startsAt: start ? alignedStartsAt(preset, toLocalInputValue(start, timezone), timezone, { isNew: false, now }) : "",
       anchor: chore.anchor,
       anchorTouched: true,
       assigneeMode: chore.assigneeMode,
@@ -82,16 +86,16 @@ function initialState(chore: ChoreItem | null, timezone: string): FormState {
       graceMinutes: chore.graceMinutes,
     };
   }
-  // New chore: weekly on today's weekday, 09:00 local.
-  const now = new Date();
+  // New chore: weekly on today's weekday, 09:00 local (next week's if that has passed).
   const today = toLocalInputValue(now, timezone).slice(0, 10);
+  const preset: SchedulePreset = { kind: "weekly", interval: 1, weekdays: [weekdayIn(now, timezone)] };
   return {
     title: "",
     description: "",
     icon: null,
     checklist: [],
-    preset: { kind: "weekly", interval: 1, weekdays: [weekdayIn(now, timezone)] },
-    startsAt: `${today}T09:00`,
+    preset,
+    startsAt: alignedStartsAt(preset, `${today}T09:00`, timezone, { isNew: true, now }),
     anchor: "DUE_DATE",
     anchorTouched: false,
     assigneeMode: "ANYONE",
@@ -249,6 +253,7 @@ function ChoreForm({ chore, onDone }: { chore: ChoreItem | null; onDone: () => v
           startsAt={f.startsAt}
           onStartsAtChange={(startsAt) => set({ startsAt })}
           timezone={tz}
+          isNew={!chore}
         />
 
         {(f.preset.kind !== "once" || f.anchor === "ADAPTIVE") && (
