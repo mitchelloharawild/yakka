@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Chore, Completion, Member, Prisma } from "@/generated/prisma/client";
 import { logActivity, type Actor } from "@/lib/activity";
-import { currentAssigneeId } from "@/lib/assignee";
+import { currentAssigneeId, parseRotation, rotationSchema, serializeRotation } from "@/lib/assignee";
 import { checklistSchema, parseChecklist, serializeChecklist } from "@/lib/checklist";
 import { prisma, type Db } from "@/lib/db";
 import { DomainError, notFound } from "@/lib/errors";
@@ -15,9 +15,11 @@ export type CompletionWithMember = Completion & { member: Pick<Member, "id" | "n
  * A chore plus everything computed on read. This is what lists and detail
  * views render; `schedule.lastCompletion` is the latest non-undone completion.
  */
-export type ChoreView = Omit<Chore, "checklist"> & {
+export type ChoreView = Omit<Chore, "checklist" | "rotation"> & {
   /** Sub-tasks shown before a tag scan completes the chore ([] = none). */
   checklist: string[];
+  /** Custom round-robin order as member ids ([] = by when members joined). */
+  rotation: string[];
   schedule: Schedule<CompletionWithMember>;
   /** Whose turn it is (null = anyone). */
   currentAssigneeId: string | null;
@@ -48,6 +50,8 @@ const choreFields = {
   anchor: z.enum(["DUE_DATE", "COMPLETION", "ADAPTIVE"]).optional(),
   assigneeMode: z.enum(["ANYONE", "FIXED", "ROUND_ROBIN"]).optional(),
   assigneeId: z.string().nullish(),
+  /** ROUND_ROBIN turn order as member ids; unlisted members follow; null/[] = by createdAt. */
+  rotation: rotationSchema.nullish(),
   graceMinutes: z.number().int().min(0).max(60 * 24 * 31).optional(),
   sortOrder: z.number().int().optional(),
 };
@@ -92,6 +96,7 @@ export function toChoreView(
   return {
     ...chore,
     checklist: parseChecklist(chore.checklist),
+    rotation: parseRotation(chore.rotation),
     schedule,
     currentAssigneeId: currentAssigneeId({
       chore,
@@ -196,14 +201,26 @@ async function assertAssignee(groupId: string, assigneeId: string | null | undef
   if (!m) throw new DomainError("BAD_REQUEST", "ASSIGNEE_NOT_IN_GROUP");
 }
 
+async function assertRotation(groupId: string, rotation: readonly string[] | null | undefined) {
+  if (!rotation?.length) return;
+  const found = await prisma.member.count({ where: { groupId, id: { in: [...rotation] } } });
+  if (found !== rotation.length) throw new DomainError("BAD_REQUEST", "ASSIGNEE_NOT_IN_GROUP");
+}
+
 /** Create a chore. */
 export async function createChore(groupId: string, input: z.input<typeof createChoreInput>, actor?: Actor) {
   const data = createChoreInput.parse(input);
   await requireGroup(groupId);
   await assertAssignee(groupId, data.assigneeId);
+  await assertRotation(groupId, data.rotation);
   const chore = await prisma.$transaction(async (tx) => {
     const chore = await tx.chore.create({
-      data: { ...data, checklist: serializeChecklist(data.checklist ?? []), groupId },
+      data: {
+        ...data,
+        checklist: serializeChecklist(data.checklist ?? []),
+        rotation: serializeRotation(data.rotation ?? []),
+        groupId,
+      },
     });
     await logActivity(tx, { groupId, type: "chore.created", actor, choreId: chore.id, data: { title: chore.title } });
     return chore;
@@ -222,6 +239,7 @@ export async function updateChore(
   const before = await prisma.chore.findFirst({ where: { id: choreId, groupId } });
   if (!before) throw notFound("CHORE_NOT_FOUND");
   await assertAssignee(groupId, data.assigneeId);
+  await assertRotation(groupId, data.rotation);
   const changed = Object.keys(data).filter((k) => data[k as keyof typeof data] !== undefined);
   await prisma.$transaction(async (tx) => {
     const chore = await tx.chore.update({
@@ -229,6 +247,7 @@ export async function updateChore(
       data: {
         ...data,
         checklist: data.checklist === undefined ? undefined : serializeChecklist(data.checklist ?? []),
+        rotation: data.rotation === undefined ? undefined : serializeRotation(data.rotation ?? []),
       },
     });
     await logActivity(tx, { groupId, type: "chore.updated", actor, choreId, data: { title: chore.title, changed } });

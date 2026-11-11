@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Chore, Completion } from "@/generated/prisma/client";
+import type { Chore, Completion, Member } from "@/generated/prisma/client";
 
 // scheduleWithPatch() is pure; the database is never touched.
 vi.mock("@/lib/db", () => ({ prisma: {} }));
 
-const { scheduleWithPatch } = await import("./chores");
+const { scheduleWithPatch, toChoreView, createChoreInput } = await import("./chores");
 
 const at = (iso: string) => new Date(iso);
 // Fortnightly on Wednesday 18:00 UTC. March 2026: Wed 4, Fri 6, Wed 18.
@@ -38,5 +38,23 @@ describe("scheduleWithPatch", () => {
   it("reports a cleared schedule as unscheduled", () => {
     const res = scheduleWithPatch(chore, [], { rrule: null, startsAt: null }, { timezone: "UTC", now });
     expect(res.after).toEqual({ status: "unscheduled", nextDueAt: null });
+  });
+});
+
+describe("rotation", () => {
+  const member = (id: string, day: number) => ({ id, createdAt: at(`2026-01-0${day}T00:00:00Z`), archivedAt: null }) as Member;
+  const members = [member("a", 1), member("b", 2), member("c", 3)];
+
+  it("toChoreView exposes the rotation as ids and follows it for whose turn it is", () => {
+    const rr = { ...chore, assigneeMode: "ROUND_ROBIN", assigneeId: null, rotation: "c,a" } as Chore;
+    const last = { ...completion("2026-03-04T17:00:00Z"), memberId: "c", member: null };
+    const v = toChoreView(rr, [last], { timezone: "UTC", members, now });
+    expect(v.rotation).toEqual(["c", "a"]);
+    expect(v.currentAssigneeId).toBe("a");
+  });
+
+  it("the input schema drops duplicate ids and rejects commas", () => {
+    expect(createChoreInput.parse({ title: "x", rotation: ["b", "a", "b"] }).rotation).toEqual(["b", "a"]);
+    expect(() => createChoreInput.parse({ title: "x", rotation: ["a,b"] })).toThrow();
   });
 });

@@ -71,6 +71,7 @@ function rows() {
         anchor: "ADAPTIVE" as const,
         assigneeMode: "ROUND_ROBIN" as const,
         assigneeId: "m-b",
+        rotation: "m-b,m-a",
         graceMinutes: 60,
         sortOrder: 0,
         createdAt: at(2),
@@ -147,6 +148,7 @@ describe("toGroupExport", () => {
       assigneeMode: "ROUND_ROBIN",
       startsAt: at(2),
       checklist: ["Empty the kitchen bin", "Wheel bins to the kerb"],
+      rotation: ["m-b", "m-a"],
     });
     expect(doc.completions[1]).toMatchObject({ undoneAt: at(10), note: "auto" });
   });
@@ -168,6 +170,9 @@ describe("parseGroupExport", () => {
     const file = asFile();
     file.completions[0].memberId = "nobody";
     expect(() => parseGroupExport(file)).toThrow(/completions\.0\.memberId: Unknown member/);
+    const rot = asFile();
+    rot.chores[0].rotation = ["m-a", "nobody"];
+    expect(() => parseGroupExport(rot)).toThrow(/chores\.0\.rotation\.1: Unknown member/);
   });
 
   it("rejects duplicate ids and invalid rrules", () => {
@@ -195,6 +200,7 @@ describe("importGroup", () => {
     expect(chore.assigneeId).toBe(members[1]);
     expect(chore.groupId).toBe(group.id);
     expect(chore.checklist).toBe("Empty the kitchen bin\nWheel bins to the kerb");
+    expect(chore.rotation).toBe(`${members[1]},${members[0]}`);
 
     const [tag] = written("tag");
     expect(tag).toMatchObject({ token: "abcdefghjkmn", choreId: "chore-3", groupId: group.id });

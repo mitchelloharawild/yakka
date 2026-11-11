@@ -98,6 +98,10 @@ model Chore {
   assigneeMode AssigneeMode   @default(ANYONE)
   // FIXED: the assignee. ROUND_ROBIN: who starts the rotation (optional).
   assigneeId   String?
+  // ROUND_ROBIN: custom turn order as comma-separated member ids (portable:
+  // no scalar lists); members not listed follow by createdAt. null = createdAt
+  // order. Use parseRotation/serializeRotation from src/lib/assignee.ts.
+  rotation     String?
   // Minutes after the due time before the chore counts as overdue. ADAPTIVE
   // chores learn this too, and only use it while on their starting guess.
   graceMinutes Int            @default(0)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currentAssigneeId, rotationOrder } from "./assignee";
+import { currentAssigneeId, parseRotation, rotationOrder, rotationOrderAll, serializeRotation } from "./assignee";
 
 const d = (n: number) => new Date(Date.UTC(2026, 0, n));
 const alice = { id: "a", createdAt: d(1), archivedAt: null };
@@ -55,5 +55,33 @@ describe("currentAssigneeId", () => {
 
   it("ROUND_ROBIN with no active members is null", () => {
     expect(currentAssigneeId({ chore: { assigneeMode: "ROUND_ROBIN", assigneeId: null }, members: [dave], lastCompletedBy: null })).toBeNull();
+  });
+});
+
+describe("rotation", () => {
+  it("parses and serializes, dropping blanks and duplicates", () => {
+    expect(parseRotation(null)).toEqual([]);
+    expect(parseRotation("b, a,,b")).toEqual(["b", "a"]);
+    expect(serializeRotation([])).toBeNull();
+    expect(serializeRotation(["c", "a", "c"])).toBe("c,a");
+  });
+
+  it("orders listed members first, then the rest by createdAt", () => {
+    expect(rotationOrder(members, "c,a").map((m) => m.id)).toEqual(["c", "a", "b"]);
+    expect(rotationOrder(members, ["b", "zz", "d"]).map((m) => m.id)).toEqual(["b", "a", "c"]);
+    expect(rotationOrderAll(members, "d,c").map((m) => m.id)).toEqual(["d", "c", "a", "b"]);
+  });
+
+  it("ROUND_ROBIN follows the chore's rotation", () => {
+    const chore = { assigneeMode: "ROUND_ROBIN" as const, assigneeId: null, rotation: "c,a,b" };
+    expect(currentAssigneeId({ chore, members, lastCompletedBy: null })).toBe("c");
+    expect(currentAssigneeId({ chore, members, lastCompletedBy: "c" })).toBe("a");
+    expect(currentAssigneeId({ chore, members, lastCompletedBy: "a" })).toBe("b");
+    expect(currentAssigneeId({ chore, members, lastCompletedBy: "b" })).toBe("c");
+  });
+
+  it("ROUND_ROBIN keeps an archived member's slot in a custom rotation", () => {
+    const chore = { assigneeMode: "ROUND_ROBIN" as const, assigneeId: null, rotation: "c,d,b,a" };
+    expect(currentAssigneeId({ chore, members, lastCompletedBy: "d" })).toBe("b");
   });
 });

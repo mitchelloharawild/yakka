@@ -202,8 +202,9 @@
       "ROUND_ROBIN": "Take turns"
     },
     "fixedMember": "Person",
-    "rotationStart": "Starts with",
-    "rotationAnyone": "First in the list",
+    "rotationHint": "Drag to change the order. Turns go down the list, then start again at the top.",
+    "rotationMove": "Move {name} (turn {position} of {count}). Use the arrow keys to reorder.",
+    "rotationNext": "Next",
     "pickMember": "Pick someone",
     "grace": "Overdue after",
     "graceAdaptive": "Overdue after (first guess)",

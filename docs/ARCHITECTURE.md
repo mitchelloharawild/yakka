@@ -36,7 +36,7 @@ Group        id (nanoid, the secret), name, timezone,
              settings (joinFromTag, undoWindowSeconds, settingsPin?)
 Member       id, groupId, name, colour, archivedAt
 Chore        id, groupId, title, icon, rrule, anchor (due-date | completion-date | adaptive),
-             assigneeMode (anyone | fixed | round-robin), assigneeId?, graceMinutes,
+             assigneeMode (anyone | fixed | round-robin), assigneeId?, rotation?, graceMinutes,
              checklist? (sub-tasks, one per line)
 Tag          id, token (separate short secret), groupId, choreId,
              qr, nfc (what the printed label offers), label, revokedAt

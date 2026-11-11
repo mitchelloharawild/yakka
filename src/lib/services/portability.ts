@@ -23,6 +23,7 @@ import { logActivity, type Actor } from "@/lib/activity";
 import { prisma } from "@/lib/db";
 import { DomainError } from "@/lib/errors";
 import { isPlausibleTagToken, newGroupId, newTagToken } from "@/lib/ids";
+import { parseRotation, serializeRotation } from "@/lib/assignee";
 import { parseChecklist, serializeChecklist } from "@/lib/checklist";
 import { createChoreInput } from "@/lib/services/chores";
 import { colourSchema, memberNameSchema, requireGroup, timezoneSchema, updateGroupInput } from "@/lib/services/groups";
@@ -108,7 +109,10 @@ export const groupExportSchema = z
     const check = (ok: boolean, path: (string | number)[], what: string) => {
       if (!ok) ctx.addIssue({ code: "custom", path, message: `Unknown ${what}` });
     };
-    doc.chores.forEach((c, i) => check(!c.assigneeId || members.has(c.assigneeId), ["chores", i, "assigneeId"], "member"));
+    doc.chores.forEach((c, i) => {
+      check(!c.assigneeId || members.has(c.assigneeId), ["chores", i, "assigneeId"], "member");
+      (c.rotation ?? []).forEach((m, j) => check(members.has(m), ["chores", i, "rotation", j], "member"));
+    });
     const tokens = new Set<string>();
     doc.tags.forEach((t, i) => {
       check(chores.has(t.choreId), ["tags", i, "choreId"], "chore");
@@ -188,6 +192,7 @@ export function toGroupExport(rows: GroupRows, now = new Date()) {
       anchor: c.anchor,
       assigneeMode: c.assigneeMode,
       assigneeId: c.assigneeId,
+      rotation: parseRotation(c.rotation),
       graceMinutes: c.graceMinutes,
       sortOrder: c.sortOrder,
       createdAt: c.createdAt,
@@ -271,7 +276,7 @@ export async function importGroup(input: unknown, actor?: Actor) {
 
       const choreIds = new Map<string, string>();
       for (const c of doc.chores) {
-        const { id: oldId, assigneeId, checklist, ...fields } = c;
+        const { id: oldId, assigneeId, checklist, rotation, ...fields } = c;
         const row = await tx.chore.create({
           data: {
             ...fields,
@@ -279,6 +284,7 @@ export async function importGroup(input: unknown, actor?: Actor) {
             archivedAt: c.archivedAt ?? null,
             groupId: id,
             assigneeId: member(assigneeId),
+            rotation: serializeRotation((rotation ?? []).map((m) => member(m)).filter((m) => m !== null)),
           },
         });
         choreIds.set(oldId, row.id);

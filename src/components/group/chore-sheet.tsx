@@ -6,6 +6,7 @@ import {
   ArchiveIcon,
   ArchiveRestoreIcon,
   CheckIcon,
+  GripVerticalIcon,
   ListChecksIcon,
   Loader2Icon,
   PlusIcon,
@@ -14,7 +15,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { useFormatter, useNow, useTranslations } from "next-intl";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -35,13 +36,14 @@ import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { currentAssigneeId, rotationOrderAll } from "@/lib/assignee";
 import { CHECKLIST_ITEM_MAX, CHECKLIST_MAX_ITEMS } from "@/lib/checklist";
 import { ADAPTIVE_MIN_GAPS, startOfLocalDay } from "@/lib/schedule";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 import { StatusBadge, useDueText } from "./chore-card";
 import { EmojiPicker } from "./emoji-picker";
-import { useActor, useErrorMessage, useGroup } from "./group-context";
+import { useActor, useErrorMessage, useGroup, type GroupMember } from "./group-context";
 import { MemberAvatar } from "./member-avatar";
 import { alignedStartsAt, ScheduleEditor, scheduleResult } from "./schedule-editor";
 import { parseRRule, type SchedulePreset } from "./schedule-presets";
@@ -63,10 +65,25 @@ interface FormState {
   anchorTouched: boolean;
   assigneeMode: AssigneeMode;
   assigneeId: string | null;
+  /** Every member id (archived included) in round-robin order. */
+  rotation: string[];
   graceMinutes: number;
 }
 
-function initialState(chore: ChoreItem | null, timezone: string): FormState {
+/**
+ * The rotation as the editor shows it: the chore's order, turned so that its
+ * "starts with" member (if any) is first. A rotation is cyclic, so this
+ * doesn't change who follows whom, and the list's top person is who starts.
+ */
+function initialRotation(chore: ChoreItem | null, members: GroupMember[]): string[] {
+  const all = rotationOrderAll(members, chore?.rotation);
+  const start = chore?.assigneeMode === "ROUND_ROBIN" ? chore.assigneeId : null;
+  const i = all.findIndex((m) => m.id === start && !m.archivedAt);
+  const ids = all.map((m) => m.id);
+  return i > 0 ? [...ids.slice(i), ...ids.slice(0, i)] : ids;
+}
+
+function initialState(chore: ChoreItem | null, timezone: string, members: GroupMember[]): FormState {
   const now = new Date();
   if (chore) {
     const preset = parseRRule(chore.rrule);
@@ -83,6 +100,7 @@ function initialState(chore: ChoreItem | null, timezone: string): FormState {
       anchorTouched: true,
       assigneeMode: chore.assigneeMode,
       assigneeId: chore.assigneeId,
+      rotation: initialRotation(chore, members),
       graceMinutes: chore.graceMinutes,
     };
   }
@@ -100,6 +118,7 @@ function initialState(chore: ChoreItem | null, timezone: string): FormState {
     anchorTouched: false,
     assigneeMode: "ANYONE",
     assigneeId: null,
+    rotation: initialRotation(null, members),
     graceMinutes: 720,
   };
 }
@@ -148,7 +167,7 @@ function ChoreForm({ chore, onDone }: { chore: ChoreItem | null; onDone: () => v
   const dueText = useDueText();
   const now = useNow({ updateInterval: 30_000 });
   const tz = group.timezone;
-  const [f, setF] = useState<FormState>(() => initialState(chore, tz));
+  const [f, setF] = useState<FormState>(() => initialState(chore, tz, group.members));
   const set = (patch: Partial<FormState>) => setF((s) => ({ ...s, ...patch }));
   const activeMembers = group.members.filter((m) => !m.archivedAt || m.id === f.assigneeId);
   const sched = scheduleResult(f.preset);
@@ -196,7 +215,9 @@ function ChoreForm({ chore, onDone }: { chore: ChoreItem | null; onDone: () => v
       startsAt: fromLocalInputValue(f.startsAt, tz),
       anchor: f.anchor,
       assigneeMode: f.assigneeMode,
-      assigneeId: f.assigneeMode === "ANYONE" ? null : f.assigneeId,
+      // Round-robin starts with the top of the rotation list, so it needs no separate start.
+      assigneeId: f.assigneeMode === "FIXED" ? f.assigneeId : null,
+      rotation: f.assigneeMode === "ROUND_ROBIN" ? f.rotation : undefined,
       graceMinutes: f.graceMinutes,
     };
     try {
@@ -332,11 +353,9 @@ function ChoreForm({ chore, onDone }: { chore: ChoreItem | null; onDone: () => v
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
-          {f.assigneeMode !== "ANYONE" && (
+          {f.assigneeMode === "FIXED" && (
             <div className="flex items-center gap-2">
-              <span className="w-28 shrink-0 text-sm text-muted-foreground">
-                {f.assigneeMode === "FIXED" ? t("fixedMember") : t("rotationStart")}
-              </span>
+              <span className="w-28 shrink-0 text-sm text-muted-foreground">{t("fixedMember")}</span>
               <Select
                 value={f.assigneeId ?? "__none"}
                 onValueChange={(v) => set({ assigneeId: v === "__none" ? null : v })}
@@ -345,14 +364,10 @@ function ChoreForm({ chore, onDone }: { chore: ChoreItem | null; onDone: () => v
                   <SelectValue placeholder={t("pickMember")} />
                 </SelectTrigger>
                 <SelectContent>
-                  {f.assigneeMode === "ROUND_ROBIN" ? (
-                    <SelectItem value="__none">{t("rotationAnyone")}</SelectItem>
-                  ) : (
-                    !f.assigneeId && (
-                      <SelectItem value="__none" disabled>
-                        {t("pickMember")}
-                      </SelectItem>
-                    )
+                  {!f.assigneeId && (
+                    <SelectItem value="__none" disabled>
+                      {t("pickMember")}
+                    </SelectItem>
                   )}
                   {activeMembers.map((m) => (
                     <SelectItem key={m.id} value={m.id}>
@@ -362,6 +377,13 @@ function ChoreForm({ chore, onDone }: { chore: ChoreItem | null; onDone: () => v
                 </SelectContent>
               </Select>
             </div>
+          )}
+          {f.assigneeMode === "ROUND_ROBIN" && (
+            <RotationEditor
+              rotation={f.rotation}
+              onChange={(rotation) => set({ rotation })}
+              lastCompletedBy={chore ? (chore.schedule.lastCompletion?.memberId ?? null) : undefined}
+            />
           )}
         </div>
 
@@ -517,6 +539,113 @@ function ChecklistEditor({ items, onChange }: { items: string[]; onChange: (item
           </Button>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Round-robin order: drag a row by its handle (mouse or touch), or focus the
+ * handle and use the arrow keys. Only active members are listed; archived
+ * members keep their (hidden) slot in `rotation`.
+ */
+function RotationEditor({
+  rotation,
+  onChange,
+  lastCompletedBy,
+}: {
+  rotation: string[];
+  onChange: (rotation: string[]) => void;
+  /** Who did the existing chore last (marks who is next); undefined for a new chore. */
+  lastCompletedBy?: string | null;
+}) {
+  const t = useTranslations("group.editor");
+  const group = useGroup();
+  const listRef = useRef<HTMLOListElement>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const byId = new Map(group.members.map((m) => [m.id, m]));
+  const active = rotation.map((id) => byId.get(id)).filter((m): m is GroupMember => !!m && !m.archivedAt);
+  const nextId =
+    lastCompletedBy === undefined
+      ? null
+      : currentAssigneeId({
+          chore: { assigneeMode: "ROUND_ROBIN", assigneeId: null, rotation: rotation.join(",") },
+          members: group.members,
+          lastCompletedBy,
+        });
+
+  /** Move the active member `id` to position `to` among the active members. */
+  const move = (id: string, to: number) => {
+    const ids = active.map((m) => m.id);
+    const from = ids.indexOf(id);
+    if (from < 0 || to < 0 || to >= ids.length || from === to) return;
+    ids.splice(to, 0, ...ids.splice(from, 1));
+    let k = 0;
+    const isActive = new Set(ids);
+    onChange(rotation.map((x) => (isActive.has(x) ? ids[k++] : x)));
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!dragId || !listRef.current) return;
+    const rows = [...listRef.current.children] as HTMLElement[];
+    const over = rows.findIndex((row) => {
+      const r = row.getBoundingClientRect();
+      return e.clientY >= r.top && e.clientY < r.bottom;
+    });
+    if (over >= 0) move(dragId, over);
+    else if (rows.length && e.clientY < rows[0].getBoundingClientRect().top) move(dragId, 0);
+    else if (rows.length && e.clientY >= rows[rows.length - 1].getBoundingClientRect().bottom) move(dragId, rows.length - 1);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, id: string, i: number) => {
+    const to = e.key === "ArrowUp" ? i - 1 : e.key === "ArrowDown" ? i + 1 : e.key === "Home" ? 0 : e.key === "End" ? active.length - 1 : null;
+    if (to === null) return;
+    e.preventDefault();
+    move(id, to);
+    // Reordering can move the focused node in the DOM; keep focus on the handle.
+    requestAnimationFrame(() => listRef.current?.querySelector<HTMLElement>(`[data-member="${id}"]`)?.focus());
+  };
+
+  if (active.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-xs text-muted-foreground">{t("rotationHint")}</p>
+      <ol ref={listRef} className="flex flex-col gap-1.5">
+        {active.map((m, i) => (
+          <li
+            key={m.id}
+            className={cn(
+              "flex h-11 items-center gap-2 rounded-xl border bg-background pr-3 transition-shadow",
+              dragId === m.id && "relative z-10 border-primary shadow-md",
+            )}
+          >
+            <button
+              type="button"
+              data-member={m.id}
+              className="flex h-full cursor-grab touch-none items-center pl-2 text-muted-foreground active:cursor-grabbing focus-visible:outline-2 focus-visible:outline-ring rounded-l-xl"
+              aria-label={t("rotationMove", { name: m.name, position: i + 1, count: active.length })}
+              onPointerDown={(e) => {
+                if (e.button !== 0) return;
+                e.currentTarget.setPointerCapture(e.pointerId);
+                setDragId(m.id);
+              }}
+              onPointerMove={onPointerMove}
+              onPointerUp={() => setDragId(null)}
+              onPointerCancel={() => setDragId(null)}
+              onKeyDown={(e) => onKeyDown(e, m.id, i)}
+            >
+              <GripVerticalIcon className="size-4" aria-hidden />
+            </button>
+            <span className="w-4 shrink-0 text-right text-xs text-muted-foreground tabular-nums">{i + 1}</span>
+            <MemberAvatar member={m} size="xs" />
+            <span className="min-w-0 flex-1 truncate text-sm">{m.name}</span>
+            {m.id === nextId && (
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                {t("rotationNext")}
+              </span>
+            )}
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }

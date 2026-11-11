@@ -3,16 +3,17 @@
  *
  *  - ANYONE: nobody in particular (null).
  *  - FIXED: chore.assigneeId, unless that member is archived or missing.
- *  - ROUND_ROBIN: rotates over the group's non-archived members ordered by
- *    createdAt (then id). The member after whoever did the last (non-undone)
- *    completion is next, so if someone covers your turn the rotation carries
- *    on from them. If the last completer has since been archived, the
- *    rotation continues with the next active member after their place in
- *    the order (archived members keep their createdAt slot), so archiving
- *    someone doesn't reset it. Before any completion, or when the last
- *    completion has no member (automation) or an unknown one, it starts at
- *    chore.assigneeId if set and active, else the first member.
+ *  - ROUND_ROBIN: rotates over the group's non-archived members in the
+ *    chore's rotation order (see rotationOrder). The member after whoever
+ *    did the last (non-undone) completion is next, so if someone covers your
+ *    turn the rotation carries on from them. If the last completer has since
+ *    been archived, the rotation continues with the next active member after
+ *    their place in the order (archived members keep their slot), so
+ *    archiving someone doesn't reset it. Before any completion, or when the
+ *    last completion has no member (automation) or an unknown one, it starts
+ *    at chore.assigneeId if set and active, else the first member.
  */
+import { z } from "zod";
 
 /** Mirrors the Prisma AssigneeMode enum. */
 export type AssigneeModeValue = "ANYONE" | "FIXED" | "ROUND_ROBIN";
@@ -26,26 +27,71 @@ export interface AssigneeMember {
 
 /** Input for currentAssigneeId(). */
 export interface AssigneeInput {
-  chore: { assigneeMode: AssigneeModeValue; assigneeId: string | null };
+  chore: {
+    assigneeMode: AssigneeModeValue;
+    assigneeId: string | null;
+    /** Stored Chore.rotation (comma-separated member ids), or null for the default order. */
+    rotation?: string | null;
+  };
   /** All members of the group (archived ones are filtered out here). */
   members: AssigneeMember[];
   /** memberId of the latest non-undone completion (null for automations or none). */
   lastCompletedBy: string | null;
 }
 
-/** Active members in rotation order (createdAt, then id). */
-export function rotationOrder<M extends AssigneeMember>(members: M[]): M[] {
-  return members.filter((m) => !m.archivedAt).sort(byRotation);
+/** Most members a rotation lists (matches the import limit). */
+export const ROTATION_MAX = 200;
+
+/**
+ * A chore's custom rotation order. Stored in Chore.rotation as comma-separated
+ * member ids (portable across Postgres/SQLite, like Webhook.events); exposed
+ * everywhere else as a string array. Never split by hand.
+ */
+export function parseRotation(stored: string | null | undefined): string[] {
+  if (!stored) return [];
+  return [...new Set(stored.split(",").map((s) => s.trim()).filter(Boolean))];
 }
 
-function byRotation(a: AssigneeMember, b: AssigneeMember): number {
-  return a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id);
+/** Member ids → stored value (no ids → null, i.e. the default order). */
+export function serializeRotation(ids: readonly string[]): string | null {
+  const clean = [...new Set(ids.map((s) => s.trim()).filter(Boolean))];
+  return clean.length ? clean.join(",") : null;
+}
+
+/** zod: a rotation as accepted by the API (member ids, duplicates dropped). */
+export const rotationSchema = z
+  .array(z.string().trim().min(1).max(64).regex(/^[^,\s]+$/))
+  .max(ROTATION_MAX)
+  .transform((ids) => [...new Set(ids)]);
+
+/**
+ * Members (archived included) in rotation order: those listed in `rotation`
+ * first, in that order, then everyone else by createdAt (then id), so a new
+ * member joins at the end of an existing rotation. Ids in `rotation` that
+ * aren't among `members` are ignored.
+ */
+export function rotationOrderAll<M extends AssigneeMember>(members: M[], rotation?: string | readonly string[] | null): M[] {
+  const ids = typeof rotation === "string" || rotation == null ? parseRotation(rotation) : rotation;
+  const rank = new Map(ids.map((id, i) => [id, i]));
+  return [...members].sort((a, b) => {
+    const ra = rank.get(a.id) ?? Infinity;
+    const rb = rank.get(b.id) ?? Infinity;
+    if (ra !== rb) return ra - rb;
+    return a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id);
+  });
+}
+
+/** Active members in rotation order (see rotationOrderAll). */
+export function rotationOrder<M extends AssigneeMember>(members: M[], rotation?: string | readonly string[] | null): M[] {
+  return rotationOrderAll(members, rotation).filter((m) => !m.archivedAt);
 }
 
 /** The id of the member whose turn it is, or null for "anyone". */
 export function currentAssigneeId(input: AssigneeInput): string | null {
   const { chore, members, lastCompletedBy } = input;
-  const active = rotationOrder(members);
+  // Everyone (archived included) so an archived last completer still has a place.
+  const all = rotationOrderAll(members, chore.rotation);
+  const active = all.filter((m) => !m.archivedAt);
   const isActive = (id: string | null): id is string => !!id && active.some((m) => m.id === id);
 
   switch (chore.assigneeMode) {
@@ -55,8 +101,6 @@ export function currentAssigneeId(input: AssigneeInput): string | null {
       return isActive(chore.assigneeId) ? chore.assigneeId : null;
     case "ROUND_ROBIN": {
       if (active.length === 0) return null;
-      // Order everyone (archived included) so an archived last completer still has a place.
-      const all = [...members].sort(byRotation);
       const idx = lastCompletedBy ? all.findIndex((m) => m.id === lastCompletedBy) : -1;
       if (idx >= 0) {
         for (let i = 1; i <= all.length; i++) {
