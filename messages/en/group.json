@@ -127,8 +127,8 @@
     "showArchived": "Show archived",
     "hideArchived": "Hide archived",
     "archived": "Archived",
-    "thisWeek": "This week",
-    "statsEmpty": "Nothing ticked off this week yet."
+    "mineTitle": "{name}'s chores this week",
+    "mineEmpty": "Nothing due for you in the next week 🎉"
   },
   "editor": {
     "newTitle": "New chore",

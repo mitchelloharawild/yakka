@@ -1,18 +1,17 @@
 "use client";
 
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
-import { PlusIcon } from "lucide-react";
+import { CheckIcon, Loader2Icon, PlusIcon } from "lucide-react";
 import { useNow, useTranslations } from "next-intl";
-import { Suspense, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
-import { ChoreCard } from "./chore-card";
+import { ChoreCard, useDueText } from "./chore-card";
 import { ChoreSheet } from "./chore-sheet";
 import { useGroup } from "./group-context";
 import { useGroupIdentity } from "./group-shell";
-import { MemberAvatar } from "./member-avatar";
-import { useChoreActions } from "./use-chore-actions";
+import { OPTIMISTIC_ID, useChoreActions, type ChoreItem } from "./use-chore-actions";
 
 /** The chores dashboard (default group tab). */
 export function ChoresView() {
@@ -36,12 +35,7 @@ export function ChoresView() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Suspense, not `if (!data)`: the prefetch may still be streaming
-          during SSR, and rendering a placeholder there but the strip on the
-          client is a hydration mismatch. */}
-      <Suspense fallback={<div className="h-10" />}>
-        <TalliesStrip />
-      </Suspense>
+      <MyChores chores={active} now={now} onOpen={openChore} onDone={completeChore} completingId={completingId} />
 
       {active.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed px-6 py-12 text-center">
@@ -113,38 +107,92 @@ export function ChoresView() {
   );
 }
 
-/** Who has done how much this week: a compact strip of avatars and counts. */
-function TalliesStrip() {
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** The active member's chores due within the next week (or overdue) that aren't ticked off yet. */
+function MyChores({
+  chores,
+  now,
+  onOpen,
+  onDone,
+  completingId,
+}: {
+  chores: readonly ChoreItem[];
+  now: Date;
+  onOpen: (id: string) => void;
+  onDone: (id: string) => void;
+  completingId: string | null | undefined;
+}) {
   const t = useTranslations("group.chores");
-  const trpc = useTRPC();
   const group = useGroup();
   const { me } = useGroupIdentity();
-  const { data } = useSuspenseQuery(trpc.groups.members.tallies.queryOptions({ groupId: group.id }));
-  const byId = new Map(data.tallies.map((x) => [x.memberId, x.week]));
-  const members = group.members.filter((m) => !m.archivedAt || (byId.get(m.id) ?? 0) > 0);
-  if (members.length === 0) return null;
-  const total = [...byId.values()].reduce((a, b) => a + b, 0);
+  const dueText = useDueText();
+  if (!me) return null;
+  const horizon = now.getTime() + WEEK_MS;
+  const mine = chores
+    .filter((c) => {
+      const s = c.schedule;
+      if (c.archivedAt || !s.nextDueAt || s.status === "done" || s.status === "unscheduled") return false;
+      if (s.lastCompletion?.id === OPTIMISTIC_ID) return false;
+      if (c.currentAssigneeId && c.currentAssigneeId !== me.id) return false;
+      return s.nextDueAt.getTime() <= horizon;
+    })
+    .sort((a, b) => a.schedule.nextDueAt!.getTime() - b.schedule.nextDueAt!.getTime());
+
   return (
-    <div className="flex items-center gap-3 overflow-x-auto rounded-xl bg-muted/50 px-3 py-2 [scrollbar-width:none]">
-      <span className="shrink-0 text-xs font-medium tracking-wide text-muted-foreground uppercase">{t("thisWeek")}</span>
-      {total === 0 ? (
-        <span className="text-sm text-muted-foreground">{t("statsEmpty")}</span>
+    <section className="flex flex-col gap-2 rounded-xl bg-muted/50 p-3">
+      <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+        {t("mineTitle", { name: me.name })}
+      </h2>
+      {mine.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{t("mineEmpty")}</p>
       ) : (
-        members
-          .map((m) => ({ m, n: byId.get(m.id) ?? 0 }))
-          .sort((a, b) => b.n - a.n)
-          .map(({ m, n }) => (
-            <span
-              key={m.id}
-              className={cn("flex shrink-0 items-center gap-1.5 text-sm", m.id === me?.id && "font-semibold")}
-              title={m.name}
-            >
-              <MemberAvatar member={m} size="xs" />
-              <span className="max-w-20 truncate">{m.name}</span>
-              <span className="tabular-nums text-muted-foreground">{n}</span>
-            </span>
-          ))
+        <ul className="flex flex-col gap-1">
+          {mine.map((c) => {
+            const due = dueText(c, now, group.timezone);
+            const overdue = c.schedule.status === "overdue";
+            return (
+              <li key={c.id} className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onOpen(c.id)}
+                  className="flex min-w-0 flex-1 items-center gap-2 rounded-lg py-1 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                >
+                  <span className="text-xl" aria-hidden>
+                    {c.icon || "🧹"}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{c.title}</span>
+                    <span
+                      title={due.title}
+                      suppressHydrationWarning
+                      className={cn(
+                        "block text-xs text-muted-foreground",
+                        overdue && "font-medium text-red-700 dark:text-red-300",
+                      )}
+                    >
+                      {due.text}
+                    </span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDone(c.id)}
+                  disabled={completingId === c.id}
+                  aria-label={t("markDone", { title: c.title })}
+                  className="flex size-9 shrink-0 items-center justify-center rounded-full border-2 bg-background outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-90 disabled:pointer-events-none"
+                >
+                  {completingId === c.id ? (
+                    <Loader2Icon className="size-4 animate-spin" />
+                  ) : (
+                    <CheckIcon className="size-4" strokeWidth={3} />
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
       )}
-    </div>
+    </section>
   );
 }

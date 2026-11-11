@@ -22,7 +22,6 @@ async function Chores({ params }: { params: PageProps<"/groups/[groupId]">["para
   const { groupId } = await params;
   await ensureGroup(groupId);
   await prefetch(trpc.groups.chores.list.queryOptions({ groupId }));
-  await prefetch(trpc.groups.members.tallies.queryOptions({ groupId }));
   return (
     <HydrateClient>
       <ChoresView />
