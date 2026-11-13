@@ -36,11 +36,62 @@ import { parseJoinLink } from "@/lib/join-link";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 
-/** Home page: pitch, create CTA and the groups remembered on this device. */
+/**
+ * Home page. Returning visitors (groups remembered on this device) get their
+ * groups first, so nobody mistakes the create CTA for "you need to set up
+ * again". First-timers get the pitch and create CTA.
+ */
 export function HomeView() {
   const t = useTranslations("group.home");
   const hydrated = useHydrated();
   const groups = sortLocalGroups(useLocalGroups());
+  const returning = hydrated && groups.length > 0;
+
+  const features = (
+    <section className="grid gap-3 sm:grid-cols-3">
+      <Feature icon={<NfcIcon className="size-5" />} title={t("features.tapTitle")} body={t("features.tapBody")} />
+      <Feature icon={<RepeatIcon className="size-5" />} title={t("features.fairTitle")} body={t("features.fairBody")} />
+      <Feature
+        icon={<ShieldCheckIcon className="size-5" />}
+        title={t("features.privateTitle")}
+        body={t("features.privateBody")}
+      />
+    </section>
+  );
+
+  if (returning) {
+    return (
+      <div className="flex flex-col gap-8 pb-8">
+        <section className="flex flex-col gap-4 pt-4 sm:pt-8">
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold tracking-widest text-primary uppercase">{t("welcomeBack")}</span>
+            <h1 className="font-heading text-3xl font-bold tracking-tight sm:text-4xl">{t("yourGroups")}</h1>
+            <p className="text-muted-foreground">{t("yourGroupsHint", { count: groups.length })}</p>
+          </div>
+          <GroupList groups={groups} />
+        </section>
+
+        <InstallPrompt />
+
+        <section className="flex flex-col gap-4 rounded-2xl bg-muted/50 p-4 sm:p-6">
+          <div className="flex flex-col gap-1">
+            <h2 className="font-heading text-lg font-semibold">{t("anotherGroupTitle")}</h2>
+            <p className="text-sm text-muted-foreground">{t("anotherGroupBody")}</p>
+          </div>
+          <div>
+            <Button asChild variant="outline" className="rounded-full">
+              <Link href="/groups/create">
+                <PlusIcon /> {t("createAnother")}
+              </Link>
+            </Button>
+          </div>
+          <JoinGroupForm />
+        </section>
+
+        {features}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-8 pb-8">
@@ -65,7 +116,7 @@ export function HomeView() {
             <Skeleton className="h-16 rounded-2xl" />
             <Skeleton className="h-16 rounded-2xl" />
           </div>
-        ) : groups.length === 0 ? (
+        ) : (
           <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed px-6 py-10 text-center">
             <span className="text-4xl" aria-hidden>
               🏠
@@ -73,22 +124,12 @@ export function HomeView() {
             <p className="font-medium">{t("emptyTitle")}</p>
             <p className="max-w-sm text-sm text-muted-foreground">{t("emptyBody")}</p>
           </div>
-        ) : (
-          <GroupList groups={groups} />
         )}
       </section>
 
       <InstallPrompt />
 
-      <section className="grid gap-3 sm:grid-cols-3">
-        <Feature icon={<NfcIcon className="size-5" />} title={t("features.tapTitle")} body={t("features.tapBody")} />
-        <Feature icon={<RepeatIcon className="size-5" />} title={t("features.fairTitle")} body={t("features.fairBody")} />
-        <Feature
-          icon={<ShieldCheckIcon className="size-5" />}
-          title={t("features.privateTitle")}
-          body={t("features.privateBody")}
-        />
-      </section>
+      {features}
     </div>
   );
 }
