@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 import { useActor, useErrorMessage, useGroup, type GroupMember } from "./group-context";
 import { IdentityDialog } from "@/components/identity-picker";
+import { PushNudge } from "@/components/pwa/push-nudge";
 import { MemberAvatar } from "./member-avatar";
 
 interface IdentityApi {
@@ -176,6 +177,11 @@ export function GroupShell({ children }: { children: React.ReactNode }) {
         <GroupNav base={base} pathname={pathname} label={t("nav.label")} itemLabel={(key) => t(`nav.${key}`)} />
       </div>
       {children}
+      <PushNudge
+        groupId={groupId}
+        memberId={me?.id ?? null}
+        suppressed={open || pathname.startsWith(`${base}/settings`)}
+      />
       <IdentityDialog
         open={open}
         onOpenChange={(o) => (o ? setExplicitOpen(true) : close(null))}

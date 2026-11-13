@@ -29,6 +29,14 @@
     "pickMember": "Choose who you are in this group first.",
     "error": "Couldn't change notification settings."
   },
+  "nudge": {
+    "pushTitle": "Get chore reminders?",
+    "pushBody": "Turn on notifications on this device to hear when your chores are due.",
+    "turnOn": "Turn on",
+    "installTitle": "Want chore reminders?",
+    "installBody": "On iPhone, notifications only work from the Home Screen app. Tap Share, then “Add to Home Screen”, and open Yakka from there.",
+    "notNow": "Not now"
+  },
   "install": {
     "title": "Install Yakka",
     "body": "Add Yakka to your home screen for one-tap access, offline use and notifications.",

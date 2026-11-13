@@ -8,7 +8,8 @@ import { Switch } from "@/components/ui/switch";
 import { useDeviceId } from "@/lib/client/local-groups";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
-import { getServiceWorkerRegistration, isIos, isPushSupported, isStandalone, urlBase64ToUint8Array } from "./platform";
+import { getServiceWorkerRegistration, isIos, isPushSupported, isStandalone } from "./platform";
+import { requestPushSubscription, subscriptionInput } from "./push-subscribe";
 
 type Support = "checking" | "unsupported" | "ios-install" | "no-sw" | "ready";
 
@@ -82,26 +83,10 @@ export function PushToggle({
 
   async function turnOn() {
     if (!registration || !memberId || !deviceId || !vapid.data) return;
-    const result = await Notification.requestPermission();
+    const { permission: result, subscription: sub } = await requestPushSubscription(registration, vapid.data);
     setPermission(result);
-    if (result !== "granted") return;
-    const sub =
-      (await registration.pushManager.getSubscription()) ??
-      (await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapid.data),
-      }));
-    const json = sub.toJSON();
-    await subscribe.mutateAsync({
-      groupId,
-      memberId,
-      deviceId,
-      subscription: {
-        endpoint: sub.endpoint,
-        expirationTime: sub.expirationTime,
-        keys: { p256dh: json.keys?.p256dh ?? "", auth: json.keys?.auth ?? "" },
-      },
-    });
+    if (!sub) return;
+    await subscribe.mutateAsync({ groupId, memberId, deviceId, subscription: subscriptionInput(sub) });
     setEndpoint(sub.endpoint);
     toast.success(t("enabled"));
   }
