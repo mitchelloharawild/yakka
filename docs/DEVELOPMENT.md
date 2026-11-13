@@ -151,29 +151,38 @@ The rules:
   the chore was created, so the chore is due at 00:00. Combine that with
   `graceMinutes = 1440` to mean "any time that day". The UI should normally
   ask for a time.
-- `anchor = DUE_DATE`: a completion satisfies the **earliest occurrence not
-  yet satisfied**. With P the latest occurrence at or before the completion
-  and N the next one:
-  - P not satisfied yet (it was missed): a late completion of P, so N is
-    next. Weekly Monday chore, Monday 5 Oct missed, done Friday 9 Oct: next
-    due Monday 12 Oct. Exception: within the **early window** before N (a
-    quarter of the interval, at most 12 h; Sunday evening for a Monday
-    chore) it counts for N instead.
-  - P already satisfied: in the second half of the interval it's an early
-    completion of N (done Saturday for Monday); in the first half it's an
-    extra completion and changes nothing.
-  - Before the first occurrence: an early completion of it if within the
-    early window, otherwise an extra completion that changes nothing (so a
-    stray tap days ahead can't skip the first due date).
+- `anchor = DUE_DATE` (a **fixed** chore: bins, bills): a completion
+  satisfies the first occurrence at least a **minimum gap** after it, so doing
+  it a little early counts for the coming due date. With P the latest
+  occurrence at or before the completion and N the next one:
+  - P already satisfied: the gap is half the interval. In the second half
+    it's an early completion of N (done Saturday for Monday); in the first
+    half it's an extra completion and changes nothing.
+  - P not satisfied yet (it was missed), or before the first occurrence: the
+    gap is a quarter of the interval. It's a late completion of P, so N is
+    next: weekly Monday chore, Monday 5 Oct missed, done Friday 9 Oct: next
+    due Monday 12 Oct. In the last quarter before N it counts for N instead:
+    a fortnightly Saturday chore done the Friday before is next due in 15
+    days, not tomorrow. Before the first occurrence, a stray tap more than a
+    quarter of an interval ahead changes nothing.
   This needs a little history, so pass `previousCompletions` (the
   `SCHEDULE_HISTORY` = 10 non-undone completions before the last, newest
   first; DUE_DATE only looks at 3 of them) and `completeHistory` (true if
   there are no older ones).
   `toChoreView()` and the cron job do. Without history, whether P was
   satisfied is unknown and the plain midpoint rule applies.
-- `anchor = COMPLETION`: the next due date is counted from the completion's
-  local date, at DTSTART's time of day. For HOURLY rules and finer, it's
-  counted from the exact completion time.
+- `anchor = COMPLETION` (a **flexible** chore: cleaning, watering): the next
+  due date is counted from the completion's local date, at DTSTART's time of
+  day. For HOURLY rules and finer, it's counted from the exact completion
+  time.
+  - Plain rules (`FREQ` and `INTERVAL` only): one interval later.
+  - Rules that pin days (`BYDAY`, `BYMONTHDAY`, ...) are **preferred days**:
+    aim for one interval after the completion and take the nearest allowed
+    day (ignoring `INTERVAL`, later on a tie, never the same day). A
+    fortnightly Saturday chore done a week late on a Saturday is next due two
+    weeks on; done on the Friday before, the Saturday 15 days on; done on a
+    Wednesday, the Saturday 17 days on. A neglected one rolls forward by whole
+    intervals from there.
 - `anchor = ADAPTIVE` (an **adaptive schedule**): the interval is learnt from
   the gaps between the last `ADAPTIVE_WINDOW` + 1 = 11 completions. With at
   least `ADAPTIVE_MIN_GAPS` = 3 gaps, the chore is due at the last completion

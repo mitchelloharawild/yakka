@@ -13,27 +13,33 @@
  *  - DTSTART is `chore.startsAt`, or 00:00 local on the day the chore was
  *    created when startsAt is null.
  *  - No completion yet: the first occurrence at/after DTSTART is due.
- *  - Anchor DUE_DATE: a completion satisfies the earliest occurrence that
- *    isn't satisfied yet. For a completion C, let P be the latest occurrence
- *    <= C and N the first occurrence > C:
- *      - no P (before the first occurrence): C satisfies N (early) if
- *        within EARLY_WINDOW of it, and changes nothing otherwise;
- *      - P not yet satisfied: C is a (late or on-time) completion of P, so N
- *        is next. Exception: C within EARLY_WINDOW of N (a quarter of the
- *        interval, at most 12 h) counts as an early completion of N, and P
- *        is simply missed;
- *      - P already satisfied (by an earlier completion): C in the second
- *        half of [P, N) is an early completion of N; in the first half it's
- *        an extra completion of P and changes nothing;
+ *  - Anchor DUE_DATE: a completion C satisfies the first occurrence that
+ *    is at least a minimum gap after it, so doing a chore a little early
+ *    counts for the coming due date instead of leaving it due straight
+ *    away. With P the latest occurrence <= C and N the first one > C, the
+ *    gap is a share of the interval [P, N) (of [N, N+1) before the first
+ *    occurrence):
+ *      - P already satisfied (by an earlier completion): half. C in the
+ *        second half of [P, N) is an early completion of N; in the first
+ *        half it's an extra completion of P and changes nothing;
+ *      - P not yet satisfied (missed), or no P: a quarter. C is a late
+ *        completion of P (so N is next) unless it's in the last quarter
+ *        before N, when it counts for N and P is simply missed;
  *      - N already satisfied: C changes nothing.
  *    Completions are folded oldest first, so this needs a little history:
  *    pass `previousCompletions` (SCHEDULE_HISTORY of them is plenty). For
  *    the oldest one given, "was P satisfied?" is unknown unless
  *    `completeHistory` says nothing came before; it's then assumed
  *    satisfied (the plain midpoint rule).
- *  - Anchor COMPLETION: the rule is re-anchored on the completion: DTSTART'
- *    is C's local date at DTSTART's time of day (or C itself for HOURLY and
- *    finer rules), and the next due is the first occurrence after DTSTART'.
+ *  - Anchor COMPLETION: the rule is counted from C's local date at DTSTART's
+ *    time of day (A), or C itself for HOURLY and finer rules:
+ *      - plain rules (FREQ and INTERVAL only): the next due is the first
+ *        occurrence of the rule re-started at A, i.e. one interval later;
+ *      - rules that pin days (BYDAY, BYMONTHDAY, ...): re-starting would
+ *        make the next matching day due straight away (a Saturday chore
+ *        done on Friday), so instead aim for A + one interval and take the
+ *        nearest day the rule allows (ignoring INTERVAL, later on a tie),
+ *        never on or before A.
  *    COUNT is ignored for re-anchored rules.
  *  - Roll-forward: if more occurrences of the rule have since started (the
  *    chore was neglected), nextDueAt is the latest occurrence <= now and
@@ -299,6 +305,7 @@ function firstUnsatisfied(
         );
     const reOpts = { ...opts };
     delete reOpts.count;
+    if (!fine && pinsDays(opts)) return nearestToTarget(reOpts, dt, anchor);
     const reRule = buildRule(reOpts, anchor);
     return result(reRule.after(anchor, false), reRule);
   }
@@ -317,10 +324,14 @@ function firstUnsatisfied(
   return result(rule.after(satisfied, false));
 }
 
-/** Early-completion window before an occurrence, as a share of the interval and in absolute terms. */
-const EARLY_WINDOW_SHARE = 0.25;
-const EARLY_WINDOW_MAX_MS = 12 * 60 * MINUTE;
-const earlyWindowMs = (interval: number) => Math.min(interval * EARLY_WINDOW_SHARE, EARLY_WINDOW_MAX_MS);
+/**
+ * DUE_DATE: the minimum gap between a completion and the occurrence it
+ * satisfies, as a share of the interval. Half when the previous occurrence
+ * was done (the midpoint rule); a quarter when it was missed, so a late
+ * completion mostly catches up the missed one.
+ */
+const MIN_GAP_SHARE = 0.5;
+const MIN_GAP_SHARE_AFTER_MISS = 0.25;
 
 /**
  * DUE_DATE: the latest satisfied occurrence (wall clock) after completion
@@ -331,22 +342,65 @@ function satisfyDueDate(rule: RRule, c: Date, satisfied: Date | null, assumePrev
   const n = rule.after(c, false);
   const p = rule.before(c, true);
   const later = (a: Date | null, b: Date) => (a && a.getTime() > b.getTime() ? a : b);
-  const untilN = n ? n.getTime() - c.getTime() : Infinity;
-  if (!p) {
-    // Before the first occurrence: an early completion of it only within the early window.
-    if (!n) return satisfied;
-    const following = rule.after(n, false);
-    const interval = following ? following.getTime() - n.getTime() : Infinity;
-    return untilN <= earlyWindowMs(interval) ? later(satisfied, n) : satisfied;
-  }
-  const pSatisfied = assumePrevious || (satisfied !== null && satisfied.getTime() >= p.getTime());
-  if (!n) return later(satisfied, p); // series ended after P
+  if (!n) return p ? later(satisfied, p) : satisfied; // series ended
   if (satisfied && satisfied.getTime() >= n.getTime()) return satisfied; // N already covered
-  const interval = n.getTime() - p.getTime();
-  const inWindow = untilN <= earlyWindowMs(interval);
-  if (!pSatisfied) return inWindow ? n : p; // late (or on-time) completion of P, unless right before N
-  const secondHalf = c.getTime() >= p.getTime() + interval / 2;
-  return secondHalf || inWindow ? n : later(satisfied, p);
+  let interval: number;
+  if (p) {
+    interval = n.getTime() - p.getTime();
+  } else {
+    const following = rule.after(n, false);
+    interval = following ? following.getTime() - n.getTime() : Infinity;
+  }
+  const pSatisfied = p !== null && (assumePrevious || (satisfied !== null && satisfied.getTime() >= p.getTime()));
+  const share = pSatisfied ? MIN_GAP_SHARE : MIN_GAP_SHARE_AFTER_MISS;
+  if (n.getTime() - c.getTime() <= interval * share) return n; // too close to N: counts for it
+  return p ? later(satisfied, p) : satisfied;
+}
+
+/** Whether a rule pins the days it falls on (BYDAY, BYMONTHDAY, ...) rather than just repeating every INTERVAL. */
+function pinsDays(opts: Partial<Options>): boolean {
+  return Object.entries(opts).some(([k, v]) => k.startsWith("by") && v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0));
+}
+
+/** `wall` moved forward by one INTERVAL of the rule's FREQ (DAILY or coarser), in wall-clock time. */
+function addInterval(wall: Date, opts: Partial<Options>): Date {
+  const n = opts.interval ?? 1;
+  const [y, mo, d, h, mi, s] = [
+    wall.getUTCFullYear(),
+    wall.getUTCMonth(),
+    wall.getUTCDate(),
+    wall.getUTCHours(),
+    wall.getUTCMinutes(),
+    wall.getUTCSeconds(),
+  ];
+  switch (opts.freq) {
+    case Frequency.YEARLY:
+      return new Date(Date.UTC(y + n, mo, d, h, mi, s));
+    case Frequency.MONTHLY:
+      return new Date(Date.UTC(y, mo + n, d, h, mi, s));
+    case Frequency.WEEKLY:
+      return new Date(Date.UTC(y, mo, d + 7 * n, h, mi, s));
+    default:
+      return new Date(Date.UTC(y, mo, d + n, h, mi, s));
+  }
+}
+
+/**
+ * COMPLETION anchor for rules that pin days: the allowed day nearest to
+ * `anchor` + one interval (later on a tie), strictly after `anchor`.
+ */
+function nearestToTarget(opts: Partial<Options>, dt: Date, anchor: Date): { wall: Date; rule: RRule } | null {
+  const days = { ...opts };
+  delete days.interval;
+  const rule = buildRule(days, dt);
+  const target = addInterval(anchor, opts);
+  const before = rule.before(target, true);
+  const after = rule.after(target, false);
+  const a = before && before.getTime() > anchor.getTime() ? before : null;
+  const pick =
+    a && (!after || target.getTime() - a.getTime() < after.getTime() - target.getTime()) ? a : (after ?? null);
+  // Restart the full rule (with INTERVAL) at the pick so roll-forward steps by whole intervals.
+  return pick ? { wall: pick, rule: buildRule(opts, pick) } : null;
 }
 
 /** Next due instant for a recurring chore after roll-forward, plus missed count; null if the series ended. */

@@ -368,6 +368,90 @@ describe("computeSchedule: DUE_DATE completions satisfy the earliest unsatisfied
   });
 });
 
+describe("computeSchedule: DUE_DATE minimum gap", () => {
+  // Fortnightly on Saturday 10:00 UTC: 3 Oct, 17 Oct, 31 Oct, 14 Nov 2026.
+  const fortnightly = chore({ rrule: "FREQ=WEEKLY;INTERVAL=2;BYDAY=SA", startsAt: at("2026-10-03T10:00:00Z") });
+  const next = (last: string, previous: string[], now: string) =>
+    computeSchedule({
+      chore: fortnightly,
+      timezone: "UTC",
+      lastCompletion: done(last),
+      previousCompletions: previous.map(done),
+      completeHistory: true,
+      now: at(now),
+    }).nextDueAt;
+
+  it("done the day before, after missing the last one, counts for tomorrow's", () => {
+    // 17 Oct missed; done Fri 30 Oct. It used to stay due on Sat 31 Oct.
+    expect(next("2026-10-30T10:00:00Z", ["2026-10-03T10:00:00Z"], "2026-10-30T11:00:00Z")).toEqual(at("2026-11-14T10:00:00Z"));
+  });
+
+  it("done the day before the very first occurrence counts for it", () => {
+    expect(next("2026-10-02T10:00:00Z", [], "2026-10-02T11:00:00Z")).toEqual(at("2026-10-17T10:00:00Z"));
+  });
+
+  it("done the day before, with the last one done, counts for tomorrow's", () => {
+    expect(next("2026-10-30T10:00:00Z", ["2026-10-17T10:00:00Z"], "2026-10-30T11:00:00Z")).toEqual(at("2026-11-14T10:00:00Z"));
+  });
+
+  it("done a few days after a missed one still catches that one up", () => {
+    // 17 Oct missed; done Wed 21 Oct, 10 days before 31 Oct.
+    expect(next("2026-10-21T10:00:00Z", ["2026-10-03T10:00:00Z"], "2026-10-21T11:00:00Z")).toEqual(at("2026-10-31T10:00:00Z"));
+  });
+});
+
+describe("computeSchedule: COMPLETION anchor on preferred days", () => {
+  // Fortnightly, preferably on Saturday 10:00 UTC, starting Sat 3 Oct 2026.
+  const cleaning = chore({
+    rrule: "FREQ=WEEKLY;INTERVAL=2;BYDAY=SA",
+    anchor: "COMPLETION",
+    startsAt: at("2026-10-03T10:00:00Z"),
+  });
+  const next = (c: ScheduleChore, last: string, now = last) =>
+    computeSchedule({ chore: c, timezone: "UTC", lastCompletion: done(last), now: at(now) });
+
+  it("on time: two weeks later", () => {
+    expect(next(cleaning, "2026-10-03T11:00:00Z").nextDueAt).toEqual(at("2026-10-17T10:00:00Z"));
+  });
+
+  it("a week late: two weeks after it was done, not back on the old cycle", () => {
+    // Due 17 Oct, done Sat 24 Oct.
+    expect(next(cleaning, "2026-10-24T11:00:00Z").nextDueAt).toEqual(at("2026-11-07T10:00:00Z"));
+  });
+
+  it("a day early: the Saturday two weeks on, not tomorrow", () => {
+    expect(next(cleaning, "2026-10-16T11:00:00Z").nextDueAt).toEqual(at("2026-10-31T10:00:00Z"));
+  });
+
+  it("midweek: the preferred day nearest two weeks on", () => {
+    // Done Wed 21 Oct: two weeks on is Wed 4 Nov; Sat 7 Nov (3 days) beats Sat 31 Oct (4 days).
+    expect(next(cleaning, "2026-10-21T11:00:00Z").nextDueAt).toEqual(at("2026-11-07T10:00:00Z"));
+    // Done Tue 20 Oct: two weeks on is Tue 3 Nov; Sat 31 Oct (3 days) beats Sat 7 Nov (4 days).
+    expect(next(cleaning, "2026-10-20T11:00:00Z").nextDueAt).toEqual(at("2026-10-31T10:00:00Z"));
+  });
+
+  it("rolls forward by whole intervals when neglected", () => {
+    const s = next(cleaning, "2026-10-03T11:00:00Z", "2026-11-20T00:00:00Z");
+    expect(s.nextDueAt).toEqual(at("2026-11-14T10:00:00Z"));
+    expect(s.missedCount).toBe(2);
+  });
+
+  it("weekly on Saturday, done on Friday: the Saturday a week on", () => {
+    const laundry = chore({ rrule: "FREQ=WEEKLY;BYDAY=SA", anchor: "COMPLETION", startsAt: at("2026-10-03T10:00:00Z") });
+    expect(next(laundry, "2026-10-09T11:00:00Z").nextDueAt).toEqual(at("2026-10-17T10:00:00Z"));
+  });
+
+  it("weekdays only, done Friday evening: Monday", () => {
+    const weekdays = chore({
+      rrule: "FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR",
+      anchor: "COMPLETION",
+      startsAt: at("2026-10-05T09:00:00Z"),
+    });
+    expect(next(weekdays, "2026-10-09T20:00:00Z").nextDueAt).toEqual(at("2026-10-12T09:00:00Z"));
+    expect(next(weekdays, "2026-10-08T20:00:00Z").nextDueAt).toEqual(at("2026-10-09T09:00:00Z"));
+  });
+});
+
 describe("computeSchedule: recurring, COMPLETION anchor", () => {
   const every3 = chore({
     rrule: "FREQ=DAILY;INTERVAL=3",

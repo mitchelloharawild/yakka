@@ -189,7 +189,7 @@
       "DUE_DATE": "The schedule",
       "DUE_DATEHint": "Stays on its days even if done late (bins, bills).",
       "COMPLETION": "When it was done",
-      "COMPLETIONHint": "Every N days after the last time (watering, haircuts).",
+      "COMPLETIONHint": "Every N days after the last time, on the nearest day you picked (cleaning, watering).",
       "ADAPTIVE": "How often it's really done",
       "ADAPTIVEHint": "Learns the rhythm from past completions and flags it overdue once it's later than 4 in 5 past gaps. Uses the schedule above as a first guess."
     },
